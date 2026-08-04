@@ -13,7 +13,7 @@ FFmpeg的Rust绑定,提供帧序列解码和PCM数据编解码等常用功能.
 
 ## 例子
 
-### 1. 获取视频元数据并生成缩略图
+### 获取视频元数据并生成缩略图
 
 ```rust
 use ffmpegx::{Ffmpeg, ThumbnailOptions};
@@ -47,7 +47,7 @@ Ok(())
 }
 ```
 
-### 2. 从视频提取帧序列
+### 从视频提取帧序列
 
 ```rust
 use ffmpegx::{Ffmpeg, DecodeVideoOptions};
@@ -78,7 +78,7 @@ Ok(frame_paths)
 }
 ```
 
-### 3. 提取 PCM 音频数据并生成波形图
+### 提取 PCM 音频数据并生成波形图
 
 ```rust
 use ffmpegx::{
@@ -123,7 +123,7 @@ Ok(pcm_samples)
 
 ```
 
-### 4. 完整的视频处理流程
+### 完整的视频处理流程
 
 ```rust
 use ffmpegx::{
@@ -139,14 +139,14 @@ fn process_video_complete(video_path: &str) -> Result<(), String> {
 let ffmpeg = Ffmpeg::new();
 println!("FFmpeg 路径: {}", ffmpeg.bin_path);
 
-// 1. 获取元数据
+// 获取元数据
 let metadata = ffmpeg.get_video_metadata(video_path)?;
 println!("\n=== 视频元数据 ===");
 println!("时长: {:.2}s", metadata.duration);
 println!("分辨率: {}x{}", metadata.width, metadata.height);
 println!("帧率: {}", metadata.fps);
 
-// 2. 生成缩略图
+// 生成缩略图
 let thumb_options = ThumbnailOptions {
 time: 5.0,
 width: Some(640),
@@ -155,7 +155,7 @@ output_path: Some("thumbnail.jpg".to_string()),
 };
 ffmpeg.generate_thumbnail(video_path, &thumb_options)?;
 
-// 3. 提取音频 PCM 数据
+// 提取音频 PCM 数据
 let pcm_data = extract_audio_pcm_data_from_path(Path::new(video_path), 0.0, 10.0)?;
 
 if !pcm_data.is_empty() {
@@ -167,7 +167,7 @@ println!("平均振幅: {:.4}", avg);
 println!("峰值振幅: {:.4}", max);
 }
 
-// 4. 生成波形图
+// 生成波形图
 generate_waveform_image(&ffmpeg, video_path, Path::new("waveform.png"), 1200, 300, "#00ff00",)?;
 
 Ok(())

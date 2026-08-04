@@ -13,7 +13,7 @@ Rust bindings for FFmpeg, providing common features such as frame sequence decod
 
 ## Examples
 
-### 1. Get Video Metadata and Generate Thumbnail
+### Get Video Metadata and Generate Thumbnail
 
 ```rust
 use ffmpegx::{Ffmpeg, ThumbnailOptions};
@@ -47,7 +47,7 @@ Ok(())
 }
 ```
 
-### 2. Extract Frame Sequence from Video
+### Extract Frame Sequence from Video
 
 ```rust
 use ffmpegx::{Ffmpeg, DecodeVideoOptions};
@@ -78,7 +78,7 @@ Ok(frame_paths)
 }
 ```
 
-### 3. Extract PCM Audio Data and Generate Waveform
+### Extract PCM Audio Data and Generate Waveform
 
 ```rust
 use ffmpegx::{
@@ -122,7 +122,7 @@ Ok(pcm_samples)
 }
 ```
 
-### 4. Full Video Processing Pipeline
+### Full Video Processing Pipeline
 
 ```rust
 use ffmpegx::{
@@ -138,14 +138,14 @@ fn process_video_complete(video_path: &str) -> Result<(), String> {
 let ffmpeg = Ffmpeg::new();
 println!("FFmpeg path: {}", ffmpeg.bin_path);
 
-// 1. Get metadata
+// Get metadata
 let metadata = ffmpeg.get_video_metadata(video_path)?;
 println!("\n=== Video Metadata ===");
 println!("Duration: {:.2}s", metadata.duration);
 println!("Resolution: {}x{}", metadata.width, metadata.height);
 println!("FPS: {}", metadata.fps);
 
-// 2. Generate thumbnail
+// Generate thumbnail
 let thumb_options = ThumbnailOptions {
 time: 5.0,
 width: Some(640),
@@ -154,7 +154,7 @@ output_path: Some("thumbnail.jpg".to_string()),
 };
 ffmpeg.generate_thumbnail(video_path, &thumb_options)?;
 
-// 3. Extract audio PCM data
+// Extract audio PCM data
 let pcm_data = extract_audio_pcm_data_from_path(
 Path::new(video_path),
 0.0,
@@ -170,7 +170,7 @@ println!("Average amplitude: {:.4}", avg);
 println!("Peak amplitude: {:.4}", max);
 }
 
-// 4. Generate waveform
+// Generate waveform
 generate_waveform_image(&ffmpeg, video_path, Path::new("waveform.png"), 1200, 300, "#00ff00")?;
 
 Ok(())
