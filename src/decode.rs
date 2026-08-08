@@ -4,7 +4,8 @@
 //! GIF decoding, image decoding, and text rendering. It supports sharded
 //! (parallel chunk-based) decoding for large video files.
 use crate::{
-    DEFAULT_AUDIO_SAMPLING_RATE, DEFAULT_DECODE_FRAME_QUALITY, DEFAULT_FPS, DEFAULT_FRAME_HEIGHT, DEFAULT_FRAME_WIDTH, Ffmpeg, FileUtils, GIF_MAX_FRAMES, HwAccel, OUTPUT_FRAME_PROFUCT_FORMAT,
+    DEFAULT_AUDIO_SAMPLING_RATE, DEFAULT_DECODE_FRAME_QUALITY, DEFAULT_FPS, DEFAULT_FRAME_HEIGHT,
+    DEFAULT_FRAME_WIDTH, Ffmpeg, FileUtils, GIF_MAX_FRAMES, HwAccel, OUTPUT_FRAME_PROFUCT_FORMAT,
 };
 use std::{
     path::{Path, PathBuf},
@@ -34,6 +35,8 @@ pub struct DecodeVideoOptions {
     pub start_time: Option<f64>,
     /// Hardware acceleration backend (None = software decoding)
     pub hwaccel: Option<HwAccel>,
+    // frame output format
+    pub output_format: String,
 }
 impl Default for DecodeVideoOptions {
     fn default() -> Self {
@@ -46,6 +49,7 @@ impl Default for DecodeVideoOptions {
             extract_audio: true,
             start_time: None,
             hwaccel: None,
+            output_format: OUTPUT_FRAME_PROFUCT_FORMAT.as_string(),
         }
     }
 }
@@ -66,6 +70,8 @@ pub struct DecodeImageOptions {
     pub quality: u32,
     /// Hardware acceleration backend (None = software decoding)
     pub hwaccel: Option<HwAccel>,
+    // frame output format
+    pub output_format: String,
 }
 impl Default for DecodeImageOptions {
     fn default() -> Self {
@@ -76,6 +82,7 @@ impl Default for DecodeImageOptions {
             height: DEFAULT_FRAME_HEIGHT,
             quality: DEFAULT_DECODE_FRAME_QUALITY.as_q_value(),
             hwaccel: None,
+            output_format: OUTPUT_FRAME_PROFUCT_FORMAT.as_string(),
         }
     }
 }
@@ -98,6 +105,8 @@ pub struct DecodeGifOptions {
     pub max_frames: u64,
     /// Hardware acceleration backend (None = software decoding)
     pub hwaccel: Option<HwAccel>,
+    // frame output format
+    pub output_format: String,
 }
 impl Default for DecodeGifOptions {
     fn default() -> Self {
@@ -109,6 +118,7 @@ impl Default for DecodeGifOptions {
             quality: DEFAULT_DECODE_FRAME_QUALITY.as_q_value(),
             max_frames: GIF_MAX_FRAMES,
             hwaccel: None,
+            output_format: OUTPUT_FRAME_PROFUCT_FORMAT.as_string(),
         }
     }
 }
@@ -194,8 +204,9 @@ impl Ffmpeg {
         let duration_clone = duration;
         let start_time_clone = start_time;
         let hwaccel_clone = hwaccel;
+        let output_format = options.output_format.to_string();
         // Spawn thread for JPEG frame extraction
-        let jpg_handle = thread::spawn(move || {
+        let frame_handle = thread::spawn(move || {
             let max_retries = 2;
             let mut attempt = 0;
             loop {
@@ -230,10 +241,7 @@ impl Ffmpeg {
                 args.push("-q:v".to_string());
                 args.push(quality_clone.clone());
                 // Output pattern
-                args.push(format!(
-                    "{}/%06d.{}",
-                    frames_dir_clone, OUTPUT_FRAME_PROFUCT_FORMAT
-                ));
+                args.push(format!("{}/%06d.{}", frames_dir_clone, output_format));
                 let output = std::process::Command::new("ffmpeg").args(&args).output();
                 let result = match output {
                     Ok(output) if output.status.success() => Ok(()),
@@ -293,7 +301,7 @@ impl Ffmpeg {
             });
             let _ = audio_handle.join();
         }
-        let _ = jpg_handle.join();
+        let _ = frame_handle.join();
         // Verify frames were extracted
         let frame_count = self.count_frames(frames_dir);
         if frame_count == 0 {
@@ -344,8 +352,9 @@ impl Ffmpeg {
         let quality_clone = quality.clone();
         let duration_clone = duration;
         let start_time_clone = start_time;
+        let output_format = options.output_format.to_string();
         // Spawn thread for JPEG frame extraction
-        let jpg_handle = thread::spawn(move || {
+        let frame_handle = thread::spawn(move || {
             let max_retries = 2;
             let mut attempt = 0;
             loop {
@@ -377,7 +386,7 @@ impl Ffmpeg {
                 // Output pattern
                 args.push(format!(
                     "{}/%06d.{}",
-                    frames_dir_clone, OUTPUT_FRAME_PROFUCT_FORMAT
+                    frames_dir_clone, output_format
                 ));
                 let output = std::process::Command::new("ffmpeg").args(&args).output();
                 let result = match output {
@@ -438,7 +447,7 @@ impl Ffmpeg {
             });
             let _ = audio_handle.join();
         }
-        let _ = jpg_handle.join();
+        let _ = frame_handle.join();
         // Verify frames were extracted
         let frame_count = self.count_frames(frames_dir);
         if frame_count == 0 {
@@ -528,6 +537,7 @@ impl Ffmpeg {
             raw_frame_count
         };
         let frame_count = if frame_count == 0 { 1 } else { frame_count };
+        let output_format = options.output_format.to_string();
         let mut args = Vec::new();
         // Add hardware acceleration if enabled
         if let Some(accel) = hwaccel {
@@ -542,10 +552,7 @@ impl Ffmpeg {
         args.push("image2".to_string());
         args.push("-q:v".to_string());
         args.push(quality);
-        args.push(format!(
-            "{}/%06d.{}",
-            frames_dir_str, OUTPUT_FRAME_PROFUCT_FORMAT
-        ));
+        args.push(format!("{}/%06d.{}", frames_dir_str, output_format));
         let output = std::process::Command::new("ffmpeg")
             .args(&args)
             .output()
@@ -601,6 +608,7 @@ impl Ffmpeg {
         let max_frames = options.max_frames;
         // Calculate frame count with limit
         let raw_frame_count = (duration * fps) as u64;
+        let output_format = options.output_format.to_string();
         let frame_count = if raw_frame_count > max_frames {
             max_frames
         } else {
@@ -617,7 +625,7 @@ impl Ffmpeg {
                 "image2",
                 "-q:v",
                 &quality,
-                &format!("{}/%06d.{}", frames_dir_str, OUTPUT_FRAME_PROFUCT_FORMAT),
+                &format!("{}/%06d.{}", frames_dir_str, output_format),
             ])
             .output()
             .map_err(|e| format!("FFmpeg failed: {}", e))?;
@@ -684,6 +692,7 @@ impl Ffmpeg {
         options: &DecodeImageOptions,
     ) -> Result<(), String> {
         let source_path = Path::new(source_path);
+        let output_format = options.output_format.to_string();
         if !source_path.exists() {
             return Err(format!("Source file not found: {}", source_path.display()));
         }
@@ -691,8 +700,7 @@ impl Ffmpeg {
         if frames_dir.exists() {
             let existing_count = self.count_frames(frames_dir);
             if existing_count > 0 {
-                let first_frame =
-                    frames_dir.join(format!("000001.{}", OUTPUT_FRAME_PROFUCT_FORMAT));
+                let first_frame = frames_dir.join(format!("000001.{}", output_format));
                 if first_frame.exists() {
                     if let Ok(reader) = image::ImageReader::open(&first_frame) {
                         if reader.into_dimensions().is_ok() {
@@ -715,6 +723,7 @@ impl Ffmpeg {
         let hwaccel = options.hwaccel;
         let frame_count = (duration * fps).ceil() as u64;
         let frame_count = if frame_count == 0 { 1 } else { frame_count };
+        let output_format = options.output_format.to_string();
         let mut args = Vec::new();
         // Add hardware acceleration if enabled
         if let Some(accel) = hwaccel {
@@ -734,16 +743,12 @@ impl Ffmpeg {
         args.push("image2".to_string());
         args.push("-q:v".to_string());
         args.push(quality);
-        args.push(format!(
-            "{}/%06d.{}",
-            frames_dir_str, OUTPUT_FRAME_PROFUCT_FORMAT
-        ));
+        args.push(format!("{}/%06d.{}", frames_dir_str, output_format));
         let output = std::process::Command::new("ffmpeg").args(&args).output();
         let mut success = false;
         if let Ok(output) = output {
             if output.status.success() {
-                let first_frame =
-                    frames_dir.join(format!("000001.{}", OUTPUT_FRAME_PROFUCT_FORMAT));
+                let first_frame = frames_dir.join(format!("000001.{}", output_format));
                 if first_frame.exists() {
                     if let Ok(reader) = image::ImageReader::open(&first_frame) {
                         if reader.into_dimensions().is_ok() {
@@ -780,6 +785,7 @@ impl Ffmpeg {
         frames_dir: &Path,
         options: &DecodeImageOptions,
     ) -> Result<(), String> {
+        let output_format = options.output_format.to_string();
         let source_path = Path::new(source_path);
         if !source_path.exists() {
             return Err(format!("Source file not found: {}", source_path.display()));
@@ -788,8 +794,7 @@ impl Ffmpeg {
         if frames_dir.exists() {
             let existing_count = self.count_frames(frames_dir);
             if existing_count > 0 {
-                let first_frame =
-                    frames_dir.join(format!("000001.{}", OUTPUT_FRAME_PROFUCT_FORMAT));
+                let first_frame = frames_dir.join(format!("000001.{}", output_format));
                 if first_frame.exists() {
                     if let Ok(reader) = image::ImageReader::open(&first_frame) {
                         if reader.into_dimensions().is_ok() {
@@ -811,6 +816,7 @@ impl Ffmpeg {
         let quality = options.quality.to_string();
         let frame_count = (duration * fps).ceil() as u64;
         let frame_count = if frame_count == 0 { 1 } else { frame_count };
+        let output_format = options.output_format.to_string();
         // Try FFmpeg first
         let output = std::process::Command::new("ffmpeg")
             .args([
@@ -824,14 +830,13 @@ impl Ffmpeg {
                 "image2",
                 "-q:v",
                 &quality,
-                &format!("{}/%06d.{}", frames_dir_str, OUTPUT_FRAME_PROFUCT_FORMAT),
+                &format!("{}/%06d.{}", frames_dir_str, output_format),
             ])
             .output();
         let mut success = false;
         if let Ok(output) = output {
             if output.status.success() {
-                let first_frame =
-                    frames_dir.join(format!("000001.{}", OUTPUT_FRAME_PROFUCT_FORMAT));
+                let first_frame = frames_dir.join(format!("000001.{}", output_format));
                 if first_frame.exists() {
                     if let Ok(reader) = image::ImageReader::open(&first_frame) {
                         if reader.into_dimensions().is_ok() {
@@ -847,22 +852,16 @@ impl Ffmpeg {
                 Ok(reader) => match reader.decode() {
                     Ok(dynamic_img) => {
                         let rgb_img = dynamic_img.to_rgb8();
-                        let frame_path =
-                            frames_dir.join(format!("000001.{}", OUTPUT_FRAME_PROFUCT_FORMAT));
+                        let frame_path = frames_dir.join(format!("000001.{}", output_format));
                         let _ = rgb_img.save(&frame_path);
                         if frame_path.exists() {
                             if let Ok(reader) = image::ImageReader::open(&frame_path) {
                                 if reader.into_dimensions().is_ok() {
                                     for i in 2..=frame_count {
-                                        let frame_path = frames_dir.join(format!(
-                                            "{:06}.{}",
-                                            i, OUTPUT_FRAME_PROFUCT_FORMAT
-                                        ));
+                                        let frame_path =
+                                            frames_dir.join(format!("{:06}.{}", i, output_format));
                                         let _ = std::fs::copy(
-                                            &frames_dir.join(format!(
-                                                "000001.{}",
-                                                OUTPUT_FRAME_PROFUCT_FORMAT
-                                            )),
+                                            &frames_dir.join(format!("000001.{}", output_format)),
                                             &frame_path,
                                         );
                                     }
@@ -878,11 +877,10 @@ impl Ffmpeg {
         }
         // Final fallback: just copy the source file
         if !success {
-            let frame_path = frames_dir.join(format!("000001.{}", OUTPUT_FRAME_PROFUCT_FORMAT));
+            let frame_path = frames_dir.join(format!("000001.{}", output_format));
             let _ = std::fs::copy(source_path, &frame_path);
             for i in 2..=frame_count {
-                let frame_path =
-                    frames_dir.join(format!("{:06}.{}", i, OUTPUT_FRAME_PROFUCT_FORMAT));
+                let frame_path = frames_dir.join(format!("{:06}.{}", i, output_format));
                 let _ = std::fs::copy(source_path, &frame_path);
             }
             if frame_path.exists() && frame_path.metadata().map(|m| m.len() > 0).unwrap_or(false) {

@@ -641,3 +641,27 @@ impl HwAccel {
         supported.contains(self)
     }
 }
+
+/// Output frame format for decoding
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputFormatTypeEnum {
+    /// JPEG format (lossy, smaller file size)
+    Jpg,
+    /// PNG format (lossless, larger file size)
+    Png,
+}
+
+impl OutputFormatTypeEnum {
+    pub fn as_str(&self) -> &str {
+        match self {
+            OutputFormatTypeEnum::Jpg => "jpg",
+            OutputFormatTypeEnum::Png => "png",
+        }
+    }
+    pub fn as_string(&self) -> String {
+        match self {
+            OutputFormatTypeEnum::Jpg => "jpg".to_string(),
+            OutputFormatTypeEnum::Png => "png".to_string(),
+        }
+    }
+}
