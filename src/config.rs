@@ -1,7 +1,7 @@
 use crate::PreviewQuality;
 
-/// Default preview quality for frame extraction
-pub const PREVIEW_FRAME_QUALITY: PreviewQuality = PreviewQuality::High;
+/// Default decode frame quality for frame extraction
+pub const DEFAULT_DECODE_FRAME_QUALITY: PreviewQuality = PreviewQuality::High;
 /// Output frame product format
 pub const OUTPUT_FRAME_PROFUCT_FORMAT: &str = "jpg";
 /// default fps
