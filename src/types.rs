@@ -1,5 +1,5 @@
-use std::process::{Child, ChildStdin, ChildStdout};
 use serde::{Deserialize, Serialize};
+use std::process::{Child, ChildStdin, ChildStdout};
 use uuid::Uuid;
 /// Persistent ffmpeg process for fast frame extraction
 ///
@@ -161,13 +161,20 @@ impl AudioMetadata {
     /// * `Err(String)` - Error message if parsing fails
     pub fn from_json(json: &serde_json::Value, path: &str) -> Result<Self, String> {
         let streams = json["streams"].as_array().ok_or("No streams found")?;
-        let audio_stream = streams.iter().find(|s| s["codec_type"].as_str() == Some("audio")).ok_or("No audio stream found")?;
+        let audio_stream = streams
+            .iter()
+            .find(|s| s["codec_type"].as_str() == Some("audio"))
+            .ok_or("No audio stream found")?;
         let format = &json["format"];
         let duration = format["duration"]
             .as_str()
             .and_then(|s| s.parse::<f64>().ok())
             .or_else(|| format["duration"].as_f64())
-            .or_else(|| audio_stream["duration"].as_str().and_then(|s| s.parse::<f64>().ok()))
+            .or_else(|| {
+                audio_stream["duration"]
+                    .as_str()
+                    .and_then(|s| s.parse::<f64>().ok())
+            })
             .or_else(|| audio_stream["duration"].as_f64())
             .unwrap_or(0.0);
         let sample_rate = audio_stream["sample_rate"]
@@ -175,9 +182,19 @@ impl AudioMetadata {
             .and_then(|s| s.parse::<u32>().ok())
             .or_else(|| audio_stream["sample_rate"].as_u64().map(|v| v as u32))
             .unwrap_or(0);
-        let channels = audio_stream["channels"].as_u64().map(|v| v as u32).unwrap_or(0);
-        let codec = audio_stream["codec_name"].as_str().unwrap_or("unknown").to_string();
-        let file_size = format["size"].as_str().and_then(|s| s.parse::<u64>().ok()).or_else(|| format["size"].as_u64()).unwrap_or(0);
+        let channels = audio_stream["channels"]
+            .as_u64()
+            .map(|v| v as u32)
+            .unwrap_or(0);
+        let codec = audio_stream["codec_name"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
+        let file_size = format["size"]
+            .as_str()
+            .and_then(|s| s.parse::<u64>().ok())
+            .or_else(|| format["size"].as_u64())
+            .unwrap_or(0);
         let bit_depth = audio_stream["bits_per_sample"]
             .as_str()
             .and_then(|s| s.parse::<u32>().ok())
@@ -186,16 +203,37 @@ impl AudioMetadata {
             .as_str()
             .and_then(|s| s.parse::<u64>().ok())
             .or_else(|| format["bit_rate"].as_u64())
-            .or_else(|| audio_stream["bit_rate"].as_str().and_then(|s| s.parse::<u64>().ok()))
+            .or_else(|| {
+                audio_stream["bit_rate"]
+                    .as_str()
+                    .and_then(|s| s.parse::<u64>().ok())
+            })
             .or_else(|| audio_stream["bit_rate"].as_u64());
         let sample_format = audio_stream["sample_fmt"].as_str().map(|s| s.to_string());
-        let channel_layout = audio_stream["channel_layout"].as_str().map(|s| s.to_string());
+        let channel_layout = audio_stream["channel_layout"]
+            .as_str()
+            .map(|s| s.to_string());
         let tags = format["tags"].as_object();
-        let title = tags.and_then(|t| t.get("TITLE")).or_else(|| tags.and_then(|t| t.get("title"))).and_then(|v| v.as_str()).map(|s| s.to_string());
-        let artist =
-            tags.and_then(|t| t.get("ARTIST")).or_else(|| tags.and_then(|t| t.get("artist"))).and_then(|v| v.as_str()).map(|s| s.to_string());
-        let album = tags.and_then(|t| t.get("ALBUM")).or_else(|| tags.and_then(|t| t.get("album"))).and_then(|v| v.as_str()).map(|s| s.to_string());
-        let genre = tags.and_then(|t| t.get("GENRE")).or_else(|| tags.and_then(|t| t.get("genre"))).and_then(|v| v.as_str()).map(|s| s.to_string());
+        let title = tags
+            .and_then(|t| t.get("TITLE"))
+            .or_else(|| tags.and_then(|t| t.get("title")))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let artist = tags
+            .and_then(|t| t.get("ARTIST"))
+            .or_else(|| tags.and_then(|t| t.get("artist")))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let album = tags
+            .and_then(|t| t.get("ALBUM"))
+            .or_else(|| tags.and_then(|t| t.get("album")))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let genre = tags
+            .and_then(|t| t.get("GENRE"))
+            .or_else(|| tags.and_then(|t| t.get("genre")))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         let year = tags
             .and_then(|t| t.get("DATE"))
             .or_else(|| tags.and_then(|t| t.get("date")))
@@ -294,36 +332,72 @@ impl VideoMetadata {
     /// * `Err(String)` - Error message if parsing fails
     pub fn from_json(json: &serde_json::Value, path: &str) -> Result<Self, String> {
         let streams = json["streams"].as_array().ok_or("No streams found")?;
-        let video_stream = streams.iter().find(|s| s["codec_type"].as_str() == Some("video")).ok_or("No video stream found")?;
-        let audio_stream = streams.iter().find(|s| s["codec_type"].as_str() == Some("audio"));
+        let video_stream = streams
+            .iter()
+            .find(|s| s["codec_type"].as_str() == Some("video"))
+            .ok_or("No video stream found")?;
+        let audio_stream = streams
+            .iter()
+            .find(|s| s["codec_type"].as_str() == Some("audio"));
         let format = &json["format"];
         let width = video_stream["width"].as_f64().unwrap_or(0.0) as f64;
         let height = video_stream["height"].as_f64().unwrap_or(0.0) as f64;
         let fps_str = video_stream["r_frame_rate"].as_str().unwrap_or("0/0");
         let fps = parse_fraction(fps_str).unwrap_or(0.0);
-        let codec = video_stream["codec_name"].as_str().unwrap_or("unknown").to_string();
-        let frame_count = video_stream["nb_frames"].as_str().and_then(|s| s.parse::<u64>().ok());
+        let codec = video_stream["codec_name"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
+        let frame_count = video_stream["nb_frames"]
+            .as_str()
+            .and_then(|s| s.parse::<u64>().ok());
         let file_size = format["size"].as_str().and_then(|s| s.parse::<u64>().ok());
-        let duration_from_frames = frame_count.and_then(|fc| if fps > 0.0 { Some(fc as f64 / fps) } else { None }).unwrap_or(0.0);
+        let duration_from_frames = frame_count
+            .and_then(|fc| {
+                if fps > 0.0 {
+                    Some(fc as f64 / fps)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0.0);
         let duration = format["duration"]
             .as_str()
             .and_then(|s| s.parse::<f64>().ok())
             .or_else(|| format["duration"].as_f64())
-            .or_else(|| video_stream["duration"].as_str().and_then(|s| s.parse::<f64>().ok()))
+            .or_else(|| {
+                video_stream["duration"]
+                    .as_str()
+                    .and_then(|s| s.parse::<f64>().ok())
+            })
             .or_else(|| video_stream["duration"].as_f64())
-            .or_else(|| if duration_from_frames > 0.0 { Some(duration_from_frames) } else { None })
+            .or_else(|| {
+                if duration_from_frames > 0.0 {
+                    Some(duration_from_frames)
+                } else {
+                    None
+                }
+            })
             .unwrap_or(0.0);
         let bitrate = format["bit_rate"]
             .as_str()
             .and_then(|s| s.parse::<u64>().ok())
             .or_else(|| format["bit_rate"].as_u64())
-            .or_else(|| video_stream["bit_rate"].as_str().and_then(|s| s.parse::<u64>().ok()))
+            .or_else(|| {
+                video_stream["bit_rate"]
+                    .as_str()
+                    .and_then(|s| s.parse::<u64>().ok())
+            })
             .or_else(|| video_stream["bit_rate"].as_u64())
             .unwrap_or(0);
         let mut final_bitrate = bitrate;
         if final_bitrate == 0 {
             if let Some(size) = file_size {
-                let dur = if duration > 0.0 { duration } else { duration_from_frames };
+                let dur = if duration > 0.0 {
+                    duration
+                } else {
+                    duration_from_frames
+                };
                 if dur > 0.0 {
                     final_bitrate = ((size as f64 * 8.0) / dur) as u64;
                 }
@@ -342,16 +416,32 @@ impl VideoMetadata {
         let audio_index = audio_stream.and_then(|s| s["index"].as_u64().map(|v| v as u32));
         let container_format = format["format_name"].as_str().map(|s| s.to_string());
         let creation_time = format["creation_time"].as_str().map(|s| s.to_string());
-        let tags = if let Some(tags_obj) = format["tags"].as_object() { Some(serde_json::Value::Object(tags_obj.clone())) } else { None };
+        let tags = if let Some(tags_obj) = format["tags"].as_object() {
+            Some(serde_json::Value::Object(tags_obj.clone()))
+        } else {
+            None
+        };
         let has_audio = audio_stream.is_some();
-        let audio_codec = audio_stream.and_then(|s| s["codec_name"].as_str()).map(|s| s.to_string());
-        let audio_sample_rate = audio_stream.and_then(|s| s["sample_rate"].as_str()).and_then(|s| s.parse::<u32>().ok());
-        let audio_channels = audio_stream.and_then(|s| s["channels"].as_u64()).map(|v| v as u32);
-        let audio_bitrate = audio_stream.and_then(|s| s["bit_rate"].as_str()).and_then(|s| s.parse::<u64>().ok());
+        let audio_codec = audio_stream
+            .and_then(|s| s["codec_name"].as_str())
+            .map(|s| s.to_string());
+        let audio_sample_rate = audio_stream
+            .and_then(|s| s["sample_rate"].as_str())
+            .and_then(|s| s.parse::<u32>().ok());
+        let audio_channels = audio_stream
+            .and_then(|s| s["channels"].as_u64())
+            .map(|v| v as u32);
+        let audio_bitrate = audio_stream
+            .and_then(|s| s["bit_rate"].as_str())
+            .and_then(|s| s.parse::<u64>().ok());
         Ok(Self {
             width,
             height,
-            duration: if duration > 0.0 { duration } else { duration_from_frames },
+            duration: if duration > 0.0 {
+                duration
+            } else {
+                duration_from_frames
+            },
             fps,
             bitrate: final_bitrate,
             codec,
@@ -393,11 +483,7 @@ impl VideoMetadata {
     }
 }
 fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
-    }
+    if b == 0 { a } else { gcd(b, a % b) }
 }
 pub fn parse_fraction(s: &str) -> Option<f64> {
     if s.contains('/') {
@@ -412,5 +498,146 @@ pub fn parse_fraction(s: &str) -> Option<f64> {
         None
     } else {
         s.parse::<f64>().ok()
+    }
+}
+/// Hardware acceleration backend options
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HwAccel {
+    /// No hardware acceleration (software decoding)
+    #[default]
+    None,
+    /// NVIDIA CUDA/NVDEC
+    Cuda,
+    /// Intel QuickSync
+    Qsv,
+    /// Intel VA-API (Linux)
+    Vaapi,
+    /// Apple VideoToolbox (macOS)
+    Videotoolbox,
+    /// AMD AMF (Windows)
+    Amf,
+    /// Vulkan
+    Vulkan,
+    /// DirectX 11 (Windows)
+    D3d11va,
+    /// DirectX 12 (Windows)
+    D3d12va,
+}
+// ffmpegx/types.rs - HwAccel
+impl HwAccel {
+    /// Returns the ffmpeg -hwaccel argument value
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            HwAccel::None => "",
+            HwAccel::Cuda => "cuda",
+            HwAccel::Qsv => "qsv",
+            HwAccel::Vaapi => "vaapi",
+            HwAccel::Videotoolbox => "videotoolbox",
+            HwAccel::Amf => "amf",
+            HwAccel::Vulkan => "vulkan",
+            HwAccel::D3d11va => "d3d11va",
+            HwAccel::D3d12va => "d3d12va",
+        }
+    }
+    /// Returns the ffmpeg -hwaccel_device argument value (device type)
+    pub fn device_type(&self) -> Option<&'static str> {
+        match self {
+            HwAccel::Cuda => Some("cuda"),
+            HwAccel::Qsv => Some("qsv"),
+            HwAccel::Vaapi => Some("vaapi"),
+            HwAccel::Videotoolbox => Some("videotoolbox"),
+            HwAccel::Amf => Some("amf"),
+            HwAccel::Vulkan => Some("vulkan"),
+            HwAccel::D3d11va => Some("d3d11va"),
+            HwAccel::D3d12va => Some("d3d12va"),
+            HwAccel::None => None,
+        }
+    }
+    /// Get all hardware acceleration backends supported by this FFmpeg binary
+    pub fn get_supported_backends(ffmpeg_path: &str) -> Vec<HwAccel> {
+        let output = std::process::Command::new(ffmpeg_path)
+            .arg("-hwaccels")
+            .output();
+        let output_str = match output {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
+            _ => return Vec::new(),
+        };
+        let mut supported = Vec::new();
+        for line in output_str.lines() {
+            let line = line.trim();
+            // Skip the header line
+            if line.contains("Hardware acceleration methods:") || line.is_empty() {
+                continue;
+            }
+            // Each line may contain multiple backends separated by spaces
+            for part in line.split_whitespace() {
+                let backend = match part {
+                    "cuda" => HwAccel::Cuda,
+                    "qsv" => HwAccel::Qsv,
+                    "vaapi" => HwAccel::Vaapi,
+                    "videotoolbox" => HwAccel::Videotoolbox,
+                    "amf" => HwAccel::Amf,
+                    "vulkan" => HwAccel::Vulkan,
+                    "d3d11va" => HwAccel::D3d11va,
+                    "d3d12va" => HwAccel::D3d12va,
+                    "dxva2" => HwAccel::D3d11va, // DXVA2 is legacy, use D3D11VA
+                    "opencl" => continue,        // OpenCL is not a decoding hwaccel
+                    _ => continue,
+                };
+                supported.push(backend);
+            }
+        }
+        supported
+    }
+    /// Auto-detect the best available hardware acceleration backend
+    pub fn auto_detect() -> Self {
+        // First, get FFmpeg binary path
+        let ffmpeg_path = match crate::core::find_ffmpeg_path() {
+            Some(p) => p,
+            None => return HwAccel::None,
+        };
+        let supported = Self::get_supported_backends(&ffmpeg_path);
+        if supported.is_empty() {
+            return HwAccel::None;
+        }
+        // Priority order per platform
+        #[cfg(target_os = "windows")]
+        {
+            // Priority: Cuda > D3d12va > D3d11va > Qsv
+            let priorities = [
+                HwAccel::Cuda,
+                HwAccel::D3d12va,
+                HwAccel::D3d11va,
+                HwAccel::Qsv,
+            ];
+            for backend in priorities {
+                if supported.contains(&backend) {
+                    return backend;
+                }
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // Priority: Cuda > Vaapi > Qsv
+            let priorities = [HwAccel::Cuda, HwAccel::Vaapi, HwAccel::Qsv];
+            for backend in priorities {
+                if supported.contains(&backend) {
+                    return backend;
+                }
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            if supported.contains(&HwAccel::Videotoolbox) {
+                return HwAccel::Videotoolbox;
+            }
+        }
+        // Fallback to first supported
+        supported.into_iter().next().unwrap_or(HwAccel::None)
+    }
+    /// Check if this hardware acceleration backend is supported by FFmpeg
+    pub fn is_supported_by_ffmpeg(&self, ffmpeg_path: &str) -> bool {
+        let supported = Self::get_supported_backends(ffmpeg_path);
+        supported.contains(self)
     }
 }

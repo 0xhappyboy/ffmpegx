@@ -3,15 +3,13 @@
 //! This module provides video decoding capabilities including frame extraction,
 //! GIF decoding, image decoding, and text rendering. It supports sharded
 //! (parallel chunk-based) decoding for large video files.
+use crate::{
+    DEFAULT_AUDIO_SAMPLING_RATE, DEFAULT_DECODE_FRAME_QUALITY, DEFAULT_FPS, DEFAULT_FRAME_HEIGHT, DEFAULT_FRAME_WIDTH, Ffmpeg, FileUtils, GIF_MAX_FRAMES, HwAccel, OUTPUT_FRAME_PROFUCT_FORMAT,
+};
 use std::{
     path::{Path, PathBuf},
     thread,
     time::Duration,
-};
-
-use crate::{
-    DEFAULT_AUDIO_SAMPLING_RATE, DEFAULT_FRAME_HEIGHT, DEFAULT_FRAME_WIDTH, Ffmpeg, FileUtils,
-    OUTPUT_FRAME_PROFUCT_FORMAT,
 };
 /// Video decoding options for frame extraction
 ///
@@ -34,17 +32,20 @@ pub struct DecodeVideoOptions {
     /// Optional start time in seconds for chunk-based decoding
     /// When specified, FFmpeg will seek to this position before decoding
     pub start_time: Option<f64>,
+    /// Hardware acceleration backend (None = software decoding)
+    pub hwaccel: Option<HwAccel>,
 }
 impl Default for DecodeVideoOptions {
     fn default() -> Self {
         Self {
-            fps: 30.0,
+            fps: DEFAULT_FPS,
             duration: 0.0,
             width: DEFAULT_FRAME_WIDTH,
             height: DEFAULT_FRAME_HEIGHT,
-            quality: 10,
+            quality: DEFAULT_DECODE_FRAME_QUALITY.as_q_value(),
             extract_audio: true,
             start_time: None,
+            hwaccel: None,
         }
     }
 }
@@ -63,6 +64,8 @@ pub struct DecodeImageOptions {
     pub height: f64,
     /// JPEG quality (1-31, lower = better quality)
     pub quality: u32,
+    /// Hardware acceleration backend (None = software decoding)
+    pub hwaccel: Option<HwAccel>,
 }
 impl Default for DecodeImageOptions {
     fn default() -> Self {
@@ -71,7 +74,8 @@ impl Default for DecodeImageOptions {
             duration: 5.0,
             width: DEFAULT_FRAME_WIDTH,
             height: DEFAULT_FRAME_HEIGHT,
-            quality: 10,
+            quality: DEFAULT_DECODE_FRAME_QUALITY.as_q_value(),
+            hwaccel: None,
         }
     }
 }
@@ -92,6 +96,8 @@ pub struct DecodeGifOptions {
     pub quality: u32,
     /// Maximum number of frames to extract
     pub max_frames: u64,
+    /// Hardware acceleration backend (None = software decoding)
+    pub hwaccel: Option<HwAccel>,
 }
 impl Default for DecodeGifOptions {
     fn default() -> Self {
@@ -100,20 +106,17 @@ impl Default for DecodeGifOptions {
             duration: 5.0,
             width: DEFAULT_FRAME_WIDTH,
             height: DEFAULT_FRAME_HEIGHT,
-            quality: 10,
-            max_frames: 300,
+            quality: DEFAULT_DECODE_FRAME_QUALITY.as_q_value(),
+            max_frames: GIF_MAX_FRAMES,
+            hwaccel: None,
         }
     }
 }
 impl Ffmpeg {
-    /// Decode video: generate frame sequence + optionally extract audio
+    /// Decode video with hardware acceleration
     ///
-    /// Decodes a video file into a sequence of JPEG frames and optionally
-    /// extracts the audio track as PCM. Frames are saved with sequential
-    /// numbering in the specified output directory.
-    ///
-    /// Supports chunk-based decoding via the `start_time` option, which allows
-    /// parallel decoding of video segments without frame duplication.
+    /// Attempts to decode video using hardware acceleration.
+    /// If hardware acceleration fails, falls back to software decoding.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source video file
@@ -125,6 +128,194 @@ impl Ffmpeg {
     /// * `Ok(())` on success
     /// * `Err(String)` - Error message if decoding fails
     pub fn decode_video(
+        &self,
+        source_path: &str,
+        frames_dir: &Path,
+        audio_path: &Path,
+        options: &DecodeVideoOptions,
+    ) -> Result<(), String> {
+        // Try hardware acceleration first if enabled
+        if options.hwaccel.is_some() {
+            match self.decode_video_hwaccel(source_path, frames_dir, audio_path, options) {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    eprintln!(
+                        "[DECODE_VIDEO] Hardware acceleration failed: {}, falling back to software",
+                        e
+                    );
+                }
+            }
+        }
+        // Fallback to software decoding (original logic)
+        self.decode_video_software(source_path, frames_dir, audio_path, options)
+    }
+    /// Decode video with hardware acceleration
+    ///
+    /// Decodes a video file using hardware acceleration.
+    /// Frames are saved with sequential numbering in the specified output directory.
+    ///
+    /// # Arguments
+    /// * `source_path` - Path to the source video file
+    /// * `frames_dir` - Directory where frame images will be saved
+    /// * `audio_path` - Path where the extracted audio will be saved
+    /// * `options` - Decoding options (fps, dimensions, quality, start_time, etc.)
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(String)` - Error message if decoding fails
+    fn decode_video_hwaccel(
+        &self,
+        source_path: &str,
+        frames_dir: &Path,
+        audio_path: &Path,
+        options: &DecodeVideoOptions,
+    ) -> Result<(), String> {
+        let source_path = Path::new(source_path);
+        if !source_path.exists() {
+            return Err(format!("Source file not found: {}", source_path.display()));
+        }
+        FileUtils::ensure_dir(frames_dir)
+            .map_err(|e| format!("Failed to create frames dir: {:?}", e))?;
+        let source_path_str = source_path.to_string_lossy().to_string();
+        let frames_dir_str = frames_dir.to_string_lossy().to_string();
+        let fps = options.fps;
+        let width = options.width;
+        let height = options.height;
+        let quality = options.quality.to_string();
+        let duration = options.duration;
+        let start_time = options.start_time;
+        let hwaccel = options.hwaccel;
+        let source_path_clone = source_path_str.clone();
+        let frames_dir_clone = frames_dir_str.clone();
+        let fps_clone = fps;
+        let width_clone = width;
+        let height_clone = height;
+        let quality_clone = quality.clone();
+        let duration_clone = duration;
+        let start_time_clone = start_time;
+        let hwaccel_clone = hwaccel;
+        // Spawn thread for JPEG frame extraction
+        let jpg_handle = thread::spawn(move || {
+            let max_retries = 2;
+            let mut attempt = 0;
+            loop {
+                attempt += 1;
+                // Build FFmpeg command arguments
+                let mut args = Vec::new();
+                // Add hardware acceleration if enabled
+                if let Some(accel) = hwaccel_clone {
+                    args.push("-hwaccel".to_string());
+                    args.push(accel.as_str().to_string());
+                }
+                // If start_time is specified, use -ss before -i for fast seeking
+                if let Some(start) = start_time_clone {
+                    args.push("-ss".to_string());
+                    args.push(start.to_string());
+                }
+                args.push("-i".to_string());
+                args.push(source_path_clone.clone());
+                // Add -t to limit duration for this chunk
+                args.push("-t".to_string());
+                args.push(duration_clone.to_string());
+                // Video filter: set fps and scale
+                args.push("-vf".to_string());
+                args.push(format!(
+                    "fps={},scale={}:{}",
+                    fps_clone, width_clone, height_clone
+                ));
+                // Output format: image2 (JPEG sequence)
+                args.push("-f".to_string());
+                args.push("image2".to_string());
+                // JPEG quality
+                args.push("-q:v".to_string());
+                args.push(quality_clone.clone());
+                // Output pattern
+                args.push(format!(
+                    "{}/%06d.{}",
+                    frames_dir_clone, OUTPUT_FRAME_PROFUCT_FORMAT
+                ));
+                let output = std::process::Command::new("ffmpeg").args(&args).output();
+                let result = match output {
+                    Ok(output) if output.status.success() => Ok(()),
+                    Ok(output) => {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        Err(format!("FFmpeg JPG error: {}", stderr))
+                    }
+                    Err(e) => Err(format!("FFmpeg JPG failed: {}", e)),
+                };
+                if result.is_ok() || attempt > max_retries + 1 {
+                    break result;
+                }
+                thread::sleep(Duration::from_millis(500));
+            }
+        });
+        // Extract audio if requested
+        if options.extract_audio {
+            let audio_path_str = audio_path.to_string_lossy().to_string();
+            let source_path_clone2 = source_path_str.clone();
+            let audio_handle = thread::spawn(move || {
+                let max_retries = 2;
+                let mut attempt = 0;
+                loop {
+                    attempt += 1;
+                    let output = std::process::Command::new("ffmpeg")
+                        .args([
+                            "-i",
+                            &source_path_clone2,
+                            "-vn",
+                            "-acodec",
+                            "pcm_s16le",
+                            "-ar",
+                            &format!("{}", DEFAULT_AUDIO_SAMPLING_RATE),
+                            "-ac",
+                            "2",
+                            "-y",
+                            &audio_path_str,
+                        ])
+                        .output();
+                    let result = match output {
+                        Ok(output) if output.status.success() => Ok(()),
+                        Ok(output) => {
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            if stderr.contains("Output file does not contain any stream") {
+                                Ok(())
+                            } else {
+                                Err(format!("FFmpeg audio error: {}", stderr))
+                            }
+                        }
+                        Err(e) => Err(format!("FFmpeg audio failed: {}", e)),
+                    };
+                    if result.is_ok() || attempt > max_retries + 1 {
+                        break result;
+                    }
+                    thread::sleep(Duration::from_millis(500));
+                }
+            });
+            let _ = audio_handle.join();
+        }
+        let _ = jpg_handle.join();
+        // Verify frames were extracted
+        let frame_count = self.count_frames(frames_dir);
+        if frame_count == 0 {
+            return Err("No frames extracted".to_string());
+        }
+        Ok(())
+    }
+    /// Decode video with software decoding (fallback)
+    ///
+    /// This is the original software decoding implementation.
+    /// Frames are saved with sequential numbering in the specified output directory.
+    ///
+    /// # Arguments
+    /// * `source_path` - Path to the source video file
+    /// * `frames_dir` - Directory where frame images will be saved
+    /// * `audio_path` - Path where the extracted audio will be saved
+    /// * `options` - Decoding options (fps, dimensions, quality, start_time, etc.)
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(String)` - Error message if decoding fails
+    fn decode_video_software(
         &self,
         source_path: &str,
         frames_dir: &Path,
@@ -162,7 +353,6 @@ impl Ffmpeg {
                 // Build FFmpeg command arguments
                 let mut args = Vec::new();
                 // If start_time is specified, use -ss before -i for fast seeking
-                // This enables chunk-based decoding where each chunk starts at a specific time
                 if let Some(start) = start_time_clone {
                     args.push("-ss".to_string());
                     args.push(start.to_string());
@@ -275,6 +465,119 @@ impl Ffmpeg {
         frames_dir: &Path,
         options: &DecodeGifOptions,
     ) -> Result<(), String> {
+        // Try hardware acceleration first if enabled
+        if options.hwaccel.is_some() {
+            match self.decode_gif_hwaccel(source_path, frames_dir, options) {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    eprintln!(
+                        "[DECODE_GIF] Hardware acceleration failed: {}, falling back to software",
+                        e
+                    );
+                }
+            }
+        }
+        // Fallback to software decoding (original logic)
+        self.decode_gif_software(source_path, frames_dir, options)
+    }
+    /// Decode GIF with hardware acceleration
+    ///
+    /// Decodes a GIF file using hardware acceleration.
+    ///
+    /// # Arguments
+    /// * `source_path` - Path to the source GIF file
+    /// * `frames_dir` - Directory where frame images will be saved
+    /// * `options` - Decoding options (fps, dimensions, quality, etc.)
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(String)` - Error message if decoding fails
+    fn decode_gif_hwaccel(
+        &self,
+        source_path: &str,
+        frames_dir: &Path,
+        options: &DecodeGifOptions,
+    ) -> Result<(), String> {
+        let source_path = Path::new(source_path);
+        if !source_path.exists() {
+            return Err(format!("Source file not found: {}", source_path.display()));
+        }
+        // Skip if frames already exist
+        if frames_dir.exists() {
+            let existing_count = self.count_frames(frames_dir);
+            if existing_count > 0 {
+                return Ok(());
+            }
+        }
+        FileUtils::ensure_dir(frames_dir)
+            .map_err(|e| format!("Failed to create frames dir: {:?}", e))?;
+        let source_path_str = source_path.to_string_lossy().to_string();
+        let frames_dir_str = frames_dir.to_string_lossy().to_string();
+        let fps = options.fps;
+        let duration = options.duration;
+        let width = options.width;
+        let height = options.height;
+        let quality = options.quality.to_string();
+        let max_frames = options.max_frames;
+        let hwaccel = options.hwaccel;
+        // Calculate frame count with limit
+        let raw_frame_count = (duration * fps) as u64;
+        let frame_count = if raw_frame_count > max_frames {
+            max_frames
+        } else {
+            raw_frame_count
+        };
+        let frame_count = if frame_count == 0 { 1 } else { frame_count };
+        let mut args = Vec::new();
+        // Add hardware acceleration if enabled
+        if let Some(accel) = hwaccel {
+            args.push("-hwaccel".to_string());
+            args.push(accel.as_str().to_string());
+        }
+        args.push("-i".to_string());
+        args.push(source_path_str);
+        args.push("-vf".to_string());
+        args.push(format!("fps={},scale={}:{}", fps, width, height));
+        args.push("-f".to_string());
+        args.push("image2".to_string());
+        args.push("-q:v".to_string());
+        args.push(quality);
+        args.push(format!(
+            "{}/%06d.{}",
+            frames_dir_str, OUTPUT_FRAME_PROFUCT_FORMAT
+        ));
+        let output = std::process::Command::new("ffmpeg")
+            .args(&args)
+            .output()
+            .map_err(|e| format!("FFmpeg failed: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("FFmpeg GIF extraction failed: {}", stderr));
+        }
+        let frame_count = self.count_frames(frames_dir);
+        if frame_count == 0 {
+            return Err("No frames extracted".to_string());
+        }
+        Ok(())
+    }
+    /// Decode GIF with software decoding (fallback)
+    ///
+    /// This is the original software decoding implementation.
+    ///
+    /// # Arguments
+    /// * `source_path` - Path to the source GIF file
+    /// * `frames_dir` - Directory where frame images will be saved
+    /// * `options` - Decoding options (fps, dimensions, quality, etc.)
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(String)` - Error message if decoding fails
+    fn decode_gif_software(
+        &self,
+        source_path: &str,
+        frames_dir: &Path,
+        options: &DecodeGifOptions,
+    ) -> Result<(), String> {
         let source_path = Path::new(source_path);
         if !source_path.exists() {
             return Err(format!("Source file not found: {}", source_path.display()));
@@ -342,6 +645,136 @@ impl Ffmpeg {
     /// * `Ok(())` on success
     /// * `Err(String)` - Error message if decoding fails
     pub fn decode_image(
+        &self,
+        source_path: &str,
+        frames_dir: &Path,
+        options: &DecodeImageOptions,
+    ) -> Result<(), String> {
+        // Try hardware acceleration first if enabled
+        if options.hwaccel.is_some() {
+            match self.decode_image_hwaccel(source_path, frames_dir, options) {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    eprintln!(
+                        "[DECODE_IMAGE] Hardware acceleration failed: {}, falling back to software",
+                        e
+                    );
+                }
+            }
+        }
+        // Fallback to software decoding (original logic)
+        self.decode_image_software(source_path, frames_dir, options)
+    }
+    /// Decode image with hardware acceleration
+    ///
+    /// Decodes an image file using hardware acceleration.
+    ///
+    /// # Arguments
+    /// * `source_path` - Path to the source image file
+    /// * `frames_dir` - Directory where frame images will be saved
+    /// * `options` - Decoding options (fps, duration, dimensions, quality)
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(String)` - Error message if decoding fails
+    fn decode_image_hwaccel(
+        &self,
+        source_path: &str,
+        frames_dir: &Path,
+        options: &DecodeImageOptions,
+    ) -> Result<(), String> {
+        let source_path = Path::new(source_path);
+        if !source_path.exists() {
+            return Err(format!("Source file not found: {}", source_path.display()));
+        }
+        // Check if frames already exist and are valid
+        if frames_dir.exists() {
+            let existing_count = self.count_frames(frames_dir);
+            if existing_count > 0 {
+                let first_frame =
+                    frames_dir.join(format!("000001.{}", OUTPUT_FRAME_PROFUCT_FORMAT));
+                if first_frame.exists() {
+                    if let Ok(reader) = image::ImageReader::open(&first_frame) {
+                        if reader.into_dimensions().is_ok() {
+                            return Ok(());
+                        }
+                    }
+                    let _ = std::fs::remove_file(&first_frame);
+                }
+            }
+        }
+        FileUtils::ensure_dir(frames_dir)
+            .map_err(|e| format!("Failed to create frames dir: {:?}", e))?;
+        let source_path_str = source_path.to_string_lossy().to_string();
+        let frames_dir_str = frames_dir.to_string_lossy().to_string();
+        let fps = options.fps;
+        let duration = options.duration;
+        let width = options.width;
+        let height = options.height;
+        let quality = options.quality.to_string();
+        let hwaccel = options.hwaccel;
+        let frame_count = (duration * fps).ceil() as u64;
+        let frame_count = if frame_count == 0 { 1 } else { frame_count };
+        let mut args = Vec::new();
+        // Add hardware acceleration if enabled
+        if let Some(accel) = hwaccel {
+            args.push("-hwaccel".to_string());
+            args.push(accel.as_str().to_string());
+        }
+        args.push("-i".to_string());
+        args.push(source_path_str);
+        args.push("-vf".to_string());
+        args.push(format!(
+            "fps={},scale={}:{},format=yuvj420p",
+            fps, width, height
+        ));
+        args.push("-frames:v".to_string());
+        args.push(frame_count.to_string());
+        args.push("-f".to_string());
+        args.push("image2".to_string());
+        args.push("-q:v".to_string());
+        args.push(quality);
+        args.push(format!(
+            "{}/%06d.{}",
+            frames_dir_str, OUTPUT_FRAME_PROFUCT_FORMAT
+        ));
+        let output = std::process::Command::new("ffmpeg").args(&args).output();
+        let mut success = false;
+        if let Ok(output) = output {
+            if output.status.success() {
+                let first_frame =
+                    frames_dir.join(format!("000001.{}", OUTPUT_FRAME_PROFUCT_FORMAT));
+                if first_frame.exists() {
+                    if let Ok(reader) = image::ImageReader::open(&first_frame) {
+                        if reader.into_dimensions().is_ok() {
+                            success = true;
+                        }
+                    }
+                }
+            }
+        }
+        if !success {
+            return Err("Failed to generate any frame".to_string());
+        }
+        let frame_count = self.count_frames(frames_dir);
+        if frame_count == 0 {
+            return Err("No frames extracted".to_string());
+        }
+        Ok(())
+    }
+    /// Decode image with software decoding (fallback)
+    ///
+    /// This is the original software decoding implementation.
+    ///
+    /// # Arguments
+    /// * `source_path` - Path to the source image file
+    /// * `frames_dir` - Directory where frame images will be saved
+    /// * `options` - Decoding options (fps, duration, dimensions, quality)
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(String)` - Error message if decoding fails
+    fn decode_image_software(
         &self,
         source_path: &str,
         frames_dir: &Path,

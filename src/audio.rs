@@ -1,7 +1,5 @@
-use std::{fs, path::Path, process::Command};
-
 use crate::DEFAULT_AUDIO_SAMPLING_RATE;
-
+use std::{fs, path::Path, process::Command};
 /// Extract PCM audio data from an audio file at specified time range
 ///
 /// This function uses ffmpeg to extract PCM audio data from the given audio file
@@ -59,7 +57,6 @@ pub fn extract_audio_pcm_data_from_path(
         .collect();
     Ok(samples)
 }
-
 /// Decode entire audio file to PCM and save to cache
 ///
 /// This function decodes the entire audio file to 32-bit float PCM format
@@ -106,7 +103,6 @@ pub fn decode_audio_to_pcm(source_path: &Path, output_path: &Path) -> Result<(),
     }
     Ok(())
 }
-
 /// Read PCM data from cached file
 ///
 /// Reads previously cached PCM data from the filesystem and converts it
@@ -129,7 +125,6 @@ pub fn read_pcm_from_cache(pcm_path: &Path) -> Result<Vec<f32>, String> {
         .collect();
     Ok(samples)
 }
-
 /// Extract PCM data from cached file with time range
 ///
 /// Reads a subset of PCM data from the cache file within the specified
@@ -163,7 +158,6 @@ pub fn extract_pcm_from_cache(
     }
     Ok(samples[start..end].to_vec())
 }
-
 /// Mix multiple audio sample vectors into a single mixed audio buffer with peak normalization
 ///
 /// This function mixes multiple audio tracks by summing samples and then

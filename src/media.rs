@@ -1,7 +1,6 @@
+use crate::{AudioMetadata, BasicMetadata, DEFAULT_AUDIO_SAMPLING_RATE, Ffmpeg, ImageMetadata};
 use serde_json::Value;
 use std::{fs, path::Path, process::Command};
-
-use crate::{AudioMetadata, BasicMetadata, DEFAULT_AUDIO_SAMPLING_RATE, Ffmpeg, ImageMetadata};
 /// Get video metadata as JSON from file path
 ///
 /// Convenience wrapper around Ffmpeg::get_video_info_json that returns
