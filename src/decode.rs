@@ -6,6 +6,7 @@
 use crate::{
     DEFAULT_AUDIO_SAMPLING_RATE, DEFAULT_DECODE_FRAME_QUALITY, DEFAULT_FPS, DEFAULT_FRAME_HEIGHT,
     DEFAULT_FRAME_WIDTH, Ffmpeg, FileUtils, GIF_MAX_FRAMES, HwAccel, OUTPUT_FRAME_PROFUCT_FORMAT,
+    PixelFormat, YuvFrame,
 };
 use std::{
     path::{Path, PathBuf},
@@ -384,10 +385,7 @@ impl Ffmpeg {
                 args.push("-q:v".to_string());
                 args.push(quality_clone.clone());
                 // Output pattern
-                args.push(format!(
-                    "{}/%06d.{}",
-                    frames_dir_clone, output_format
-                ));
+                args.push(format!("{}/%06d.{}", frames_dir_clone, output_format));
                 let output = std::process::Command::new("ffmpeg").args(&args).output();
                 let result = match output {
                     Ok(output) if output.status.success() => Ok(()),
@@ -990,5 +988,172 @@ impl Ffmpeg {
             .map(|p| p.to_string_lossy().to_string())
             .collect();
         Ok((frame_paths.len() as u64, frame_paths))
+    }
+    /// Decode video segment to YUV frames in memory
+    ///
+    /// # Arguments
+    /// * `source_path` - Path to video file
+    /// * `start_time` - Start time in seconds
+    /// * `duration` - Duration in seconds
+    ///
+    /// # Returns
+    /// * `Result<Vec<YuvFrame>, String>` - Vector of YUV420P frames
+    pub fn decode_video_to_yuv(
+        &self,
+        source_path: &str,
+        start_time: f64,
+        duration: f64,
+    ) -> Result<Vec<YuvFrame>, String> {
+        let source = std::path::Path::new(source_path);
+        if !source.exists() {
+            return Err(format!("Source file not found: {}", source_path));
+        }
+        if duration <= 0.0 {
+            return Err("Duration must be greater than 0".to_string());
+        }
+        let (width, height) = self.get_video_dimensions(source_path)?;
+        let hwaccel = HwAccel::auto_detect();
+        let mut args = Vec::new();
+        if hwaccel != HwAccel::None {
+            args.push("-hwaccel".to_string());
+            args.push(hwaccel.as_str().to_string());
+        }
+        args.push("-ss".to_string());
+        args.push(start_time.to_string());
+        args.push("-i".to_string());
+        args.push(source_path.to_string());
+        args.push("-t".to_string());
+        args.push(duration.to_string());
+        args.push("-pix_fmt".to_string());
+        args.push("yuv420p".to_string());
+        args.push("-f".to_string());
+        args.push("rawvideo".to_string());
+        args.push("-".to_string());
+        let output = std::process::Command::new(&self.bin_path)
+            .args(&args)
+            .output()
+            .map_err(|e| format!("FFmpeg decode failed: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("No such file") || stderr.contains("does not contain") {
+                return Ok(Vec::new());
+            }
+            if stderr.contains("hwaccel") || stderr.contains("device") {
+                eprintln!("[FFMPEGX] Hardware decode failed, falling back to software");
+                let fallback_args = vec![
+                    "-ss".to_string(),
+                    start_time.to_string(),
+                    "-i".to_string(),
+                    source_path.to_string(),
+                    "-t".to_string(),
+                    duration.to_string(),
+                    "-pix_fmt".to_string(),
+                    "yuv420p".to_string(),
+                    "-f".to_string(),
+                    "rawvideo".to_string(),
+                    "-".to_string(),
+                ];
+                let fallback_output = std::process::Command::new(&self.bin_path)
+                    .args(&fallback_args)
+                    .output()
+                    .map_err(|e| format!("FFmpeg software decode failed: {}", e))?;
+                if !fallback_output.status.success() {
+                    let stderr2 = String::from_utf8_lossy(&fallback_output.stderr);
+                    return Err(format!("FFmpeg software decode error: {}", stderr2));
+                }
+                if fallback_output.stdout.is_empty() {
+                    return Ok(Vec::new());
+                }
+                // 内联解析 fallback_output
+                let data = &fallback_output.stdout;
+                let y_size = (width * height) as usize;
+                let uv_size = ((width / 2) * (height / 2)) as usize;
+                let frame_size = y_size + uv_size * 2;
+                if data.len() % frame_size != 0 {
+                    return Err(format!(
+                        "Invalid YUV data: total {} bytes, frame size {} bytes",
+                        data.len(),
+                        frame_size
+                    ));
+                }
+                let frame_count = data.len() / frame_size;
+                let mut frames = Vec::with_capacity(frame_count);
+                for i in 0..frame_count {
+                    let offset = i * frame_size;
+                    let end = offset + frame_size;
+                    frames.push(YuvFrame {
+                        y: data[offset..offset + y_size].to_vec(),
+                        u: data[offset + y_size..offset + y_size + uv_size].to_vec(),
+                        v: data[offset + y_size + uv_size..end].to_vec(),
+                        width,
+                        height,
+                        format: PixelFormat::YUV420P,
+                        pts: start_time + i as f64 / 30.0,
+                    });
+                }
+                return Ok(frames);
+            }
+            return Err(format!("FFmpeg error: {}", stderr));
+        }
+        if output.stdout.is_empty() {
+            return Ok(Vec::new());
+        }
+        // 内联解析 output.stdout
+        let data = &output.stdout;
+        let y_size = (width * height) as usize;
+        let uv_size = ((width / 2) * (height / 2)) as usize;
+        let frame_size = y_size + uv_size * 2;
+        if data.len() % frame_size != 0 {
+            return Err(format!(
+                "Invalid YUV data: total {} bytes, frame size {} bytes",
+                data.len(),
+                frame_size
+            ));
+        }
+        let frame_count = data.len() / frame_size;
+        let mut frames = Vec::with_capacity(frame_count);
+        for i in 0..frame_count {
+            let offset = i * frame_size;
+            let end = offset + frame_size;
+            frames.push(YuvFrame {
+                y: data[offset..offset + y_size].to_vec(),
+                u: data[offset + y_size..offset + y_size + uv_size].to_vec(),
+                v: data[offset + y_size + uv_size..end].to_vec(),
+                width,
+                height,
+                format: PixelFormat::YUV420P,
+                pts: start_time + i as f64 / 30.0,
+            });
+        }
+        Ok(frames)
+    }
+    /// Get video dimensions using ffprobe
+    fn get_video_dimensions(&self, source_path: &str) -> Result<(u32, u32), String> {
+        let output = std::process::Command::new(&self.probe_path)
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=p=0",
+                source_path,
+            ])
+            .output()
+            .map_err(|e| format!("ffprobe failed: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("ffprobe error: {}", stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let parts: Vec<&str> = stdout.trim().split(',').collect();
+        if parts.len() != 2 {
+            return Err(format!("Failed to parse dimensions: {}", stdout));
+        }
+        let width = parts[0].parse::<u32>().map_err(|_| "Invalid width")?;
+        let height = parts[1].parse::<u32>().map_err(|_| "Invalid height")?;
+        Ok((width, height))
     }
 }

@@ -641,7 +641,6 @@ impl HwAccel {
         supported.contains(self)
     }
 }
-
 /// Output frame format for decoding
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormatTypeEnum {
@@ -650,7 +649,6 @@ pub enum OutputFormatTypeEnum {
     /// PNG format (lossless, larger file size)
     Png,
 }
-
 impl OutputFormatTypeEnum {
     pub fn as_str(&self) -> &str {
         match self {
@@ -663,5 +661,71 @@ impl OutputFormatTypeEnum {
             OutputFormatTypeEnum::Jpg => "jpg".to_string(),
             OutputFormatTypeEnum::Png => "png".to_string(),
         }
+    }
+}
+/// YUV frame data structure
+#[derive(Debug, Clone)]
+pub struct YuvFrame {
+    /// Y plane data (luminance)
+    pub y: Vec<u8>,
+    /// U plane data (chrominance blue-difference)
+    pub u: Vec<u8>,
+    /// V plane data (chrominance red-difference)
+    pub v: Vec<u8>,
+    /// Frame width
+    pub width: u32,
+    /// Frame height
+    pub height: u32,
+    /// Pixel format
+    pub format: PixelFormat,
+    /// Presentation timestamp
+    pub pts: f64,
+}
+/// Pixel format enumeration
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PixelFormat {
+    YUV420P,
+    NV12,
+    RGB24,
+}
+impl YuvFrame {
+    /// Convert YUV to RGB (CPU, for debug/testing)
+    pub fn to_rgb(&self) -> Vec<u8> {
+        let w = self.width as usize;
+        let h = self.height as usize;
+        let mut rgb = vec![0u8; w * h * 3];
+        for y in 0..h {
+            for x in 0..w {
+                let y_idx = y * w + x;
+                let uv_idx = (y / 2) * (w / 2) + (x / 2);
+                let y_val = self.y[y_idx] as f32;
+                let u_val = self.u[uv_idx] as f32 - 128.0;
+                let v_val = self.v[uv_idx] as f32 - 128.0;
+                let r = (y_val + 1.402 * v_val).clamp(0.0, 255.0) as u8;
+                let g = (y_val - 0.344 * u_val - 0.714 * v_val).clamp(0.0, 255.0) as u8;
+                let b = (y_val + 1.772 * u_val).clamp(0.0, 255.0) as u8;
+                let rgb_idx = (y * w + x) * 3;
+                rgb[rgb_idx] = r;
+                rgb[rgb_idx + 1] = g;
+                rgb[rgb_idx + 2] = b;
+            }
+        }
+        rgb
+    }
+    /// Get total data size in bytes
+    pub fn data_size(&self) -> usize {
+        self.y.len() + self.u.len() + self.v.len()
+    }
+    /// Get Y plane size
+    pub fn y_size(&self) -> usize {
+        self.y.len()
+    }
+    /// Get U plane size
+    pub fn u_size(&self) -> usize {
+        self.u.len()
+    }
+    /// Get V plane size
+    pub fn v_size(&self) -> usize {
+        self.v.len()
     }
 }
