@@ -1,6 +1,6 @@
 [package]
 name = "ffmpegx"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 authors = ["happyboy <superhappyboy1995@gmail.com>"]
 description = "Rust bindings for FFmpeg, providing common features such as frame sequence decoding and PCM data encoding/decoding."

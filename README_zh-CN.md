@@ -173,3 +173,86 @@ generate_waveform_image(&ffmpeg, video_path, Path::new("waveform.png"), 1200, 30
 Ok(())
 }
 ```
+
+### 将帧序列编码为视频
+
+```rust
+use ffmpegx::{Ffmpeg, FrameSequence, VideoEncodeOptions, VideoCodec, EncoderPreset, HwAccel};
+use std::path::Path;
+
+fn encode_video_from_frames(frames_dir: &str, output_path: &str) -> Result<(), String> {
+    let ffmpeg = Ffmpeg::new();
+    let frame_sequence = FrameSequence::from_dir(Path::new(frames_dir))?;
+    println!("已加载 {} 帧", frame_sequence.frame_count);
+    let video_options = VideoEncodeOptions {
+        width: 1920,
+        height: 1080,
+        fps: 30.0,
+        codec: VideoCodec::H264,
+        bit_rate: 5_000_000,
+        crf: 23,
+        preset: EncoderPreset::Medium,
+        hwaccel: HwAccel::None,
+        pixel_format: "yuv420p".to_string(),
+        extra_args: Vec::new(),
+    };
+    ffmpeg.encode_frames_to_video(
+        &frame_sequence,
+        Path::new(output_path),
+        &video_options,
+    )?;
+    println!("视频已保存到: {}", output_path);
+    Ok(())
+}
+```
+
+### 将帧序列编码为动画 GIF
+
+```rust
+use ffmpegx::{Ffmpeg, FrameSequence, GifEncodeOptions};
+use std::path::Path;
+
+fn encode_gif_from_frames(frames_dir: &str, output_path: &str) -> Result<(), String> {
+    let ffmpeg = Ffmpeg::new();
+    let frame_sequence = FrameSequence::from_dir(Path::new(frames_dir))?;
+    println!("已加载 {} 帧", frame_sequence.frame_count);
+    let gif_options = GifEncodeOptions {
+        width: 854,
+        height: 480,
+        fps: 24.0,
+        quality: "standard".to_string(),
+        dither: true,
+        loop_animation: true,
+        max_colors: 256,
+    };
+    ffmpeg.encode_frames_to_gif(
+        &frame_sequence,
+        Path::new(output_path),
+        &gif_options,
+    )?;
+    println!("GIF 已保存到: {}", output_path);
+    Ok(())
+}
+```
+
+### 直接将 PCM 音频合并到视频
+
+```rust
+use ffmpegx::Ffmpeg;
+use std::path::Path;
+
+fn merge_audio_into_video(video_path: &str, pcm_path: &str, output_path: &str) -> Result<(), String> {
+    let ffmpeg = Ffmpeg::new();
+    ffmpeg.merge_pcm_into_video(
+        Path::new(video_path),
+        Path::new(pcm_path),
+        Path::new(output_path),
+        "aac",      // 音频格式: aac, mp3, flac, wav, opus
+        44100,      // 采样率 (Hz)
+        2,          // 声道数 (1=单声道, 2=立体声)
+        192000,     // 比特率 (bps)
+    )?;
+    println!("合并后的视频已保存到: {}", output_path);
+    Ok(())
+}
+```

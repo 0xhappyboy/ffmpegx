@@ -1098,7 +1098,6 @@ impl Ffmpeg {
         if output.stdout.is_empty() {
             return Ok(Vec::new());
         }
-        // 内联解析 output.stdout
         let data = &output.stdout;
         let y_size = (width * height) as usize;
         let uv_size = ((width / 2) * (height / 2)) as usize;
