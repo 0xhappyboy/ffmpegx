@@ -17,5 +17,7 @@ pub const DEFAULT_FRAME_WIDTH: f64 = 1280.0;
 pub const DEFAULT_FRAME_HEIGHT: f64 = 720.0;
 /// Default audio sample rate
 pub const DEFAULT_AUDIO_SAMPLING_RATE: u32 = 44100;
+/// Default audio Channel
+pub const DEFAULT_AUDIO_CHANNEL: u16 = 2;
 /// gif max frames
 pub const GIF_MAX_FRAMES: u64 = 300;
