@@ -4,7 +4,7 @@
 //! GIF decoding, image decoding, and text rendering. It supports sharded
 //! (parallel chunk-based) decoding for large video files.
 use crate::{
-    DEFAULT_AUDIO_SAMPLING_RATE, DEFAULT_DECODE_FRAME_QUALITY, DEFAULT_FPS, DEFAULT_FRAME_HEIGHT,
+    DEFAULT_AUDIO_RATE, DEFAULT_DECODE_FRAME_QUALITY, DEFAULT_FPS, DEFAULT_FRAME_HEIGHT,
     DEFAULT_FRAME_WIDTH, Ffmpeg, FileUtils, GIF_MAX_FRAMES, HwAccel, OUTPUT_FRAME_PROFUCT_FORMAT,
     PixelFormat, YuvFrame,
 };
@@ -275,7 +275,7 @@ impl Ffmpeg {
                             "-acodec",
                             "pcm_s16le",
                             "-ar",
-                            &format!("{}", DEFAULT_AUDIO_SAMPLING_RATE),
+                            &format!("{}", DEFAULT_AUDIO_RATE),
                             "-ac",
                             "2",
                             "-y",
@@ -418,7 +418,7 @@ impl Ffmpeg {
                             "-acodec",
                             "pcm_s16le",
                             "-ar",
-                            &format!("{}", DEFAULT_AUDIO_SAMPLING_RATE),
+                            &format!("{}", DEFAULT_AUDIO_RATE),
                             "-ac",
                             "2",
                             "-y",

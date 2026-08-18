@@ -1,4 +1,4 @@
-use crate::{AudioMetadata, BasicMetadata, DEFAULT_AUDIO_SAMPLING_RATE, Ffmpeg, ImageMetadata};
+use crate::{AudioMetadata, BasicMetadata, DEFAULT_AUDIO_RATE, Ffmpeg, ImageMetadata};
 use serde_json::Value;
 use std::{fs, path::Path, process::Command};
 /// Get video metadata as JSON from file path
@@ -145,14 +145,14 @@ pub fn generate_waveform_image(
     let sample_rate = if lines.len() >= 1 {
         lines[0]
             .parse::<u32>()
-            .unwrap_or(DEFAULT_AUDIO_SAMPLING_RATE)
+            .unwrap_or(DEFAULT_AUDIO_RATE)
     } else {
-        DEFAULT_AUDIO_SAMPLING_RATE
+        DEFAULT_AUDIO_RATE
     };
-    let filter = if sample_rate != DEFAULT_AUDIO_SAMPLING_RATE {
+    let filter = if sample_rate != DEFAULT_AUDIO_RATE {
         format!(
             "aresample={},showwavespic=s={}x{}:colors={}",
-            DEFAULT_AUDIO_SAMPLING_RATE, width, height, color
+            DEFAULT_AUDIO_RATE, width, height, color
         )
     } else {
         format!("showwavespic=s={}x{}:colors={}", width, height, color)

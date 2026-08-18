@@ -1,4 +1,4 @@
-use crate::DEFAULT_AUDIO_SAMPLING_RATE;
+use crate::DEFAULT_AUDIO_RATE;
 use std::{fs, path::Path, process::Command};
 /// Extract PCM audio data from an audio file at specified time range
 ///
@@ -37,7 +37,7 @@ pub fn extract_audio_pcm_data_from_path(
             "-acodec",
             "pcm_f32le",
             "-ar",
-            &format!("{}", DEFAULT_AUDIO_SAMPLING_RATE),
+            &format!("{}", DEFAULT_AUDIO_RATE),
             "-ac",
             "2",
             "-f",
@@ -87,7 +87,7 @@ pub fn decode_audio_to_pcm(source_path: &Path, output_path: &Path) -> Result<(),
             "-acodec",
             "pcm_f32le",
             "-ar",
-            &format!("{}", DEFAULT_AUDIO_SAMPLING_RATE),
+            &format!("{}", DEFAULT_AUDIO_RATE),
             "-ac",
             "2",
             "-f",
@@ -148,7 +148,7 @@ pub fn extract_pcm_from_cache(
         return Ok(Vec::new());
     }
     let channels = 2;
-    let samples_per_second = DEFAULT_AUDIO_SAMPLING_RATE * channels;
+    let samples_per_second = DEFAULT_AUDIO_RATE * channels;
     let start_sample = (start_time * samples_per_second as f64) as usize;
     let end_sample = ((start_time + duration) * samples_per_second as f64) as usize;
     let start = start_sample.min(samples.len());
