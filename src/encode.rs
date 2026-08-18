@@ -2,7 +2,7 @@
 //!
 //! This module provides video encoding capabilities for exporting
 //! frame sequences to video files or animated GIFs.
-use crate::{Ffmpeg, HwAccel};
+use crate::{Ffmpeg, FileUtils, HwAccel};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 /// Video encoding format
@@ -156,28 +156,35 @@ pub struct FrameSequence {
 impl FrameSequence {
     /// Create a new frame sequence from a directory containing PNG frames
     pub fn from_dir(frames_dir: &Path) -> Result<Self, String> {
-        if !frames_dir.exists() {
+        if !FileUtils::path_exists(frames_dir) {
             return Err(format!("Frames directory not found: {:?}", frames_dir));
         }
         let mut frame_count = 0;
-        if let Ok(entries) = std::fs::read_dir(frames_dir) {
-            for entry in entries.flatten() {
+        let mut pattern = "%06d.png".to_string();
+        if let Ok(entries) = FileUtils::read_dir_entries(frames_dir) {
+            for entry in entries {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension() {
-                        if ext == "png" {
+                        let ext_str = ext.to_string_lossy().to_lowercase();
+                        if ext_str == "png" || ext_str == "jpg" || ext_str == "jpeg" {
                             frame_count += 1;
+                            if ext_str == "png" {
+                                pattern = "%06d.png".to_string();
+                            } else if ext_str == "jpg" || ext_str == "jpeg" {
+                                pattern = "%06d.jpg".to_string();
+                            }
                         }
                     }
                 }
             }
         }
         if frame_count == 0 {
-            return Err(format!("No PNG frame files found in: {:?}", frames_dir));
+            return Err(format!("No frame files found in: {:?}", frames_dir));
         }
         Ok(Self {
             frames_dir: frames_dir.to_path_buf(),
-            pattern: "%06d.png".to_string(),
+            pattern,
             frame_count,
         })
     }
@@ -221,13 +228,15 @@ impl Ffmpeg {
         if frame_sequence.frame_count == 0 {
             return Err("No frames to encode".to_string());
         }
-        if output_path.exists() {
-            let _ = std::fs::remove_file(output_path);
+        // Remove existing output file if it exists
+        if FileUtils::path_exists(output_path) {
+            let _ = FileUtils::remove_file(output_path);
         }
+        // Ensure output directory exists
         if let Some(parent) = output_path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create output directory: {}", e))?;
+            if !FileUtils::path_exists(parent) {
+                FileUtils::ensure_dir(parent)
+                    .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
         let mut cmd = Command::new(&self.bin_path);
@@ -287,7 +296,7 @@ impl Ffmpeg {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!("FFmpeg video encoding failed: {}", stderr));
         }
-        if !output_path.exists() {
+        if !FileUtils::path_exists(output_path) {
             return Err("Output video file was not created".to_string());
         }
         Ok(())
@@ -299,92 +308,138 @@ impl Ffmpeg {
         output_path: &Path,
         options: &GifEncodeOptions,
     ) -> Result<(), String> {
+        log::debug!(
+            "encode_frames_to_gif - START: frames_dir={:?}, frame_count={}, output_path={:?}, fps={}",
+            frame_sequence.frames_dir,
+            frame_sequence.frame_count,
+            output_path,
+            options.fps
+        );
         if frame_sequence.frame_count == 0 {
+            log::error!("encode_frames_to_gif - No frames to encode");
             return Err("No frames to encode".to_string());
         }
-        if output_path.exists() {
-            let _ = std::fs::remove_file(output_path);
-        }
+        // Ensure output directory exists
         if let Some(parent) = output_path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create output directory: {}", e))?;
+            if !FileUtils::path_exists(parent) {
+                log::debug!(
+                    "encode_frames_to_gif - Creating output directory: {:?}",
+                    parent
+                );
+                FileUtils::ensure_dir(parent)
+                    .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
+        // Remove existing output file if it exists
+        if FileUtils::path_exists(output_path) {
+            log::debug!(
+                "encode_frames_to_gif - Removing existing output file: {:?}",
+                output_path
+            );
+            let _ = FileUtils::remove_file(output_path);
+        }
         let palette_path = output_path.with_extension("palette.png");
-        // Step 1: Generate palette
-        let mut palette_cmd = Command::new(&self.bin_path);
-        palette_cmd
-            .arg("-framerate")
-            .arg(options.fps.to_string())
-            .arg("-i")
-            .arg(frame_sequence.get_input_pattern());
-        let mut filter_parts = Vec::new();
-        filter_parts.push(format!("fps={}", options.fps));
-        filter_parts.push(format!(
-            "scale={}:{}:flags=lanczos",
-            options.width, options.height
-        ));
-        let palettegen_filter = if options.max_colors < 256 {
+        log::debug!("encode_frames_to_gif - Palette path: {:?}", palette_path);
+        let input_pattern = frame_sequence.get_input_pattern();
+        log::debug!("encode_frames_to_gif - Step 1: Generating palette...");
+        let palette_filter = if options.max_colors < 256 {
             format!(
-                "palettegen=max_colors={}:stats_mode=diff",
-                options.max_colors
+                "fps={},scale={}:{}:flags=lanczos,palettegen=max_colors={}:stats_mode=diff",
+                options.fps, options.width, options.height, options.max_colors
             )
         } else {
-            "palettegen=stats_mode=diff".to_string()
+            format!(
+                "fps={},scale={}:{}:flags=lanczos,palettegen=stats_mode=diff",
+                options.fps, options.width, options.height
+            )
         };
-        filter_parts.push(palettegen_filter);
-        palette_cmd
-            .arg("-vf")
-            .arg(filter_parts.join(","))
-            .arg("-y")
-            .arg(&palette_path);
-        let palette_output = palette_cmd
-            .output()
-            .map_err(|e| format!("Failed to generate GIF palette: {}", e))?;
-        if !palette_output.status.success() {
-            let stderr = String::from_utf8_lossy(&palette_output.stderr);
-            return Err(format!("FFmpeg palette generation failed: {}", stderr));
-        }
-        // Step 2: Encode GIF
-        let mut gif_cmd = Command::new(&self.bin_path);
-        gif_cmd
+        let palette_output_cmd = Command::new(&self.bin_path)
             .arg("-framerate")
             .arg(options.fps.to_string())
             .arg("-i")
-            .arg(frame_sequence.get_input_pattern())
-            .arg("-i")
-            .arg(&palette_path);
-        let mut gif_filter_parts = Vec::new();
-        gif_filter_parts.push(format!("fps={}", options.fps));
-        gif_filter_parts.push(format!(
-            "scale={}:{}:flags=lanczos",
-            options.width, options.height
-        ));
-        let paletteuse_filter = if options.dither {
-            "paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle".to_string()
-        } else {
-            "paletteuse=dither=none".to_string()
-        };
-        gif_filter_parts.push(paletteuse_filter);
-        gif_cmd.arg("-vf").arg(gif_filter_parts.join(","));
-        if options.loop_animation {
-            gif_cmd.arg("-loop").arg("0");
-        } else {
-            gif_cmd.arg("-loop").arg("-1");
+            .arg(&input_pattern)
+            .arg("-vf")
+            .arg(&palette_filter)
+            .arg("-y")
+            .arg(&palette_path)
+            .output()
+            .map_err(|e| format!("Failed to generate GIF palette: {}", e))?;
+        if !palette_output_cmd.status.success() {
+            let stderr = String::from_utf8_lossy(&palette_output_cmd.stderr);
+            log::error!(
+                "encode_frames_to_gif - Palette generation failed: {}",
+                stderr
+            );
+            return Err(format!("FFmpeg palette generation failed: {}", stderr));
         }
-        gif_cmd.arg("-y").arg(output_path.to_str().unwrap());
-        let gif_output = gif_cmd
+        if !FileUtils::path_exists(&palette_path) {
+            log::error!(
+                "encode_frames_to_gif - Palette file not created: {:?}",
+                palette_path
+            );
+            return Err(format!("Palette file not created: {:?}", palette_path));
+        }
+        log::debug!(
+            "encode_frames_to_gif - Palette generated: {:?}",
+            palette_path
+        );
+        log::debug!("encode_frames_to_gif - Step 2: Encoding GIF...");
+        let gif_filter = if options.dither {
+            format!(
+                "[0:v]fps={},scale={}:{}:flags=lanczos[scaled];[scaled][1:v]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
+                options.fps, options.width, options.height
+            )
+        } else {
+            format!(
+                "[0:v]fps={},scale={}:{}:flags=lanczos[scaled];[scaled][1:v]paletteuse=dither=none",
+                options.fps, options.width, options.height
+            )
+        };
+        let gif_output_cmd = Command::new(&self.bin_path)
+            .arg("-framerate")
+            .arg(options.fps.to_string())
+            .arg("-i")
+            .arg(&input_pattern)
+            .arg("-i")
+            .arg(&palette_path)
+            .arg("-filter_complex")
+            .arg(&gif_filter)
+            .arg("-loop")
+            .arg(if options.loop_animation { "0" } else { "-1" })
+            .arg("-y")
+            .arg(output_path.to_str().unwrap())
             .output()
             .map_err(|e| format!("Failed to encode GIF: {}", e))?;
-        let _ = std::fs::remove_file(&palette_path);
-        if !gif_output.status.success() {
-            let stderr = String::from_utf8_lossy(&gif_output.stderr);
+        // Clean up palette file
+        let _ = FileUtils::remove_file(&palette_path);
+        log::debug!("encode_frames_to_gif - Palette file cleaned up");
+        if !gif_output_cmd.status.success() {
+            let stderr = String::from_utf8_lossy(&gif_output_cmd.stderr);
+            log::error!("encode_frames_to_gif - GIF encoding failed: {}", stderr);
             return Err(format!("FFmpeg GIF encoding failed: {}", stderr));
         }
-        if !output_path.exists() {
+        // Verify output file was created
+        if !FileUtils::path_exists(output_path) {
+            log::error!(
+                "encode_frames_to_gif - Output GIF file was not created: {:?}",
+                output_path
+            );
             return Err("Output GIF file was not created".to_string());
         }
+        let file_size = FileUtils::get_file_size(output_path)
+            .map_err(|e| format!("Failed to get output file size: {:?}", e))?;
+        if file_size == 0 {
+            log::error!(
+                "encode_frames_to_gif - Output GIF file is empty: {:?}",
+                output_path
+            );
+            return Err("Output GIF file is empty".to_string());
+        }
+        log::debug!(
+            "encode_frames_to_gif - DONE: output_path={:?}, size={} bytes",
+            output_path,
+            file_size
+        );
         Ok(())
     }
     /// Encodes PCM audio to the target format using ffmpeg
@@ -408,13 +463,13 @@ impl Ffmpeg {
         channels: u16,
         bitrate: u32,
     ) -> Result<(), String> {
-        if !input_path.exists() {
+        if !FileUtils::path_exists(input_path) {
             return Err(format!("PCM file not found: {:?}", input_path));
         }
         if let Some(parent) = output_path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create output directory: {}", e))?;
+            if !FileUtils::path_exists(parent) {
+                FileUtils::ensure_dir(parent)
+                    .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
         let mut cmd = Command::new(&self.bin_path);
@@ -474,7 +529,7 @@ impl Ffmpeg {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!("FFmpeg PCM encoding failed: {}", stderr));
         }
-        if !output_path.exists() {
+        if !FileUtils::path_exists(output_path) {
             return Err("Encoded audio file was not created".to_string());
         }
         Ok(())
@@ -503,13 +558,13 @@ impl Ffmpeg {
         channels: u16,
         bitrate: u32,
     ) -> Result<(), String> {
-        if !input_path.exists() {
+        if !FileUtils::path_exists(input_path) {
             return Err(format!("PCM file not found: {:?}", input_path));
         }
         if let Some(parent) = output_path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create output directory: {}", e))?;
+            if !FileUtils::path_exists(parent) {
+                FileUtils::ensure_dir(parent)
+                    .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
         let mut cmd = Command::new(&self.bin_path);
@@ -569,7 +624,7 @@ impl Ffmpeg {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!("FFmpeg encoding failed: {}", stderr));
         }
-        if !output_path.exists() {
+        if !FileUtils::path_exists(output_path) {
             return Err("Encoded audio file was not created".to_string());
         }
         Ok(())
@@ -598,16 +653,16 @@ impl Ffmpeg {
         audio_path: &Path,
         output_path: &Path,
     ) -> Result<(), String> {
-        if !video_path.exists() {
+        if !FileUtils::path_exists(video_path) {
             return Err(format!("Video file not found: {:?}", video_path));
         }
-        if !audio_path.exists() {
+        if !FileUtils::path_exists(audio_path) {
             return Err(format!("Audio file not found: {:?}", audio_path));
         }
         if let Some(parent) = output_path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create output directory: {}", e))?;
+            if !FileUtils::path_exists(parent) {
+                FileUtils::ensure_dir(parent)
+                    .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
         let output = Command::new(&self.bin_path)
@@ -634,7 +689,7 @@ impl Ffmpeg {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!("FFmpeg audio merge failed: {}", stderr));
         }
-        if !output_path.exists() {
+        if !FileUtils::path_exists(output_path) {
             return Err("Merged output file was not created".to_string());
         }
         Ok(())
@@ -668,17 +723,17 @@ impl Ffmpeg {
         bitrate: u32,
     ) -> Result<(), String> {
         // Validate input files exist
-        if !video_path.exists() {
+        if !FileUtils::path_exists(video_path) {
             return Err(format!("Video file not found: {:?}", video_path));
         }
-        if !pcm_path.exists() {
+        if !FileUtils::path_exists(pcm_path) {
             return Err(format!("PCM file not found: {:?}", pcm_path));
         }
         // Ensure output directory exists
         if let Some(parent) = output_path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create output directory: {}", e))?;
+            if !FileUtils::path_exists(parent) {
+                FileUtils::ensure_dir(parent)
+                    .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
         // If output path is the same as video path, use a temporary file first
@@ -737,20 +792,20 @@ impl Ffmpeg {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if let Some(temp_path) = temp_output {
-                let _ = std::fs::remove_file(&temp_path);
+                let _ = FileUtils::remove_file(&temp_path);
             }
             return Err(format!("FFmpeg PCM merge failed: {}", stderr));
         }
         // If we used a temporary file, move it to the final destination
         if let Some(temp_path) = temp_output {
-            if output_path.exists() && output_path != video_path {
-                let _ = std::fs::remove_file(output_path);
+            if FileUtils::path_exists(output_path) && output_path != video_path {
+                let _ = FileUtils::remove_file(output_path);
             }
             std::fs::rename(&temp_path, output_path)
                 .map_err(|e| format!("Failed to move temp file to output: {}", e))?;
         }
         // Verify the output file was created
-        if !output_path.exists() {
+        if !FileUtils::path_exists(output_path) {
             return Err("Output file was not created".to_string());
         }
         Ok(())
