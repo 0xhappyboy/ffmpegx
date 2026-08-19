@@ -2,7 +2,7 @@
 //!
 //! This module provides video encoding capabilities for exporting
 //! frame sequences to video files or animated GIFs.
-use crate::{Ffmpeg, FileUtils, HwAccel};
+use crate::{Ffmpeg, FileUtils, HwAccel, hidden_cmd};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 /// Video encoding format
@@ -239,7 +239,7 @@ impl Ffmpeg {
                     .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
-        let mut cmd = Command::new(&self.bin_path);
+        let mut cmd = hidden_cmd(&self.bin_path);
         if options.hwaccel != HwAccel::None {
             cmd.arg("-hwaccel").arg(options.hwaccel.as_str());
         }
@@ -353,7 +353,7 @@ impl Ffmpeg {
                 options.fps, options.width, options.height
             )
         };
-        let palette_output_cmd = Command::new(&self.bin_path)
+        let palette_output_cmd = hidden_cmd(&self.bin_path)
             .arg("-framerate")
             .arg(options.fps.to_string())
             .arg("-i")
@@ -395,7 +395,7 @@ impl Ffmpeg {
                 options.fps, options.width, options.height
             )
         };
-        let gif_output_cmd = Command::new(&self.bin_path)
+        let gif_output_cmd = hidden_cmd(&self.bin_path)
             .arg("-framerate")
             .arg(options.fps.to_string())
             .arg("-i")
@@ -472,7 +472,7 @@ impl Ffmpeg {
                     .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
-        let mut cmd = Command::new(&self.bin_path);
+        let mut cmd = hidden_cmd(&self.bin_path);
         cmd.arg("-y")
             .arg("-f")
             .arg("f32le")
@@ -567,7 +567,7 @@ impl Ffmpeg {
                     .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
-        let mut cmd = Command::new(&self.bin_path);
+        let mut cmd = hidden_cmd(&self.bin_path);
         cmd.arg("-y")
             .arg("-f")
             .arg("f32le")
@@ -665,7 +665,7 @@ impl Ffmpeg {
                     .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
-        let output = Command::new(&self.bin_path)
+        let output = hidden_cmd(&self.bin_path)
             .args([
                 "-y",
                 "-i",
@@ -759,7 +759,7 @@ impl Ffmpeg {
         };
         // Build FFmpeg command
         // Input order: 0=video, 1=PCM audio
-        let mut cmd = std::process::Command::new(&self.bin_path);
+        let mut cmd = hidden_cmd(&self.bin_path);
         cmd.arg("-y")
             .arg("-i")
             .arg(video_path.to_str().unwrap())

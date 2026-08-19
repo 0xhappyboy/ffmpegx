@@ -1,4 +1,4 @@
-use crate::DEFAULT_AUDIO_RATE;
+use crate::{DEFAULT_AUDIO_RATE, cmd_ffmpeg};
 use std::{fs, path::Path, process::Command};
 /// Extract PCM audio data from an audio file at specified time range
 ///
@@ -25,7 +25,7 @@ pub fn extract_audio_pcm_data_from_path(
     if duration <= 0.0 {
         return Ok(Vec::new());
     }
-    let output = Command::new("ffmpeg")
+    let output = cmd_ffmpeg()
         .args([
             "-ss",
             &start_time.to_string(),
@@ -79,7 +79,7 @@ pub fn decode_audio_to_pcm(source_path: &Path, output_path: &Path) -> Result<(),
             fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
         }
     }
-    let output = Command::new("ffmpeg")
+    let output = cmd_ffmpeg()
         .args([
             "-i",
             source_path.to_str().unwrap(),

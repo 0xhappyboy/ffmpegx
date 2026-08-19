@@ -4,9 +4,7 @@
 //! GIF decoding, image decoding, and text rendering. It supports sharded
 //! (parallel chunk-based) decoding for large video files.
 use crate::{
-    DEFAULT_AUDIO_RATE, DEFAULT_DECODE_FRAME_QUALITY, DEFAULT_FPS, DEFAULT_FRAME_HEIGHT,
-    DEFAULT_FRAME_WIDTH, Ffmpeg, FileUtils, GIF_MAX_FRAMES, HwAccel, OUTPUT_FRAME_PROFUCT_FORMAT,
-    PixelFormat, YuvFrame,
+    DEFAULT_AUDIO_RATE, DEFAULT_DECODE_FRAME_QUALITY, DEFAULT_FPS, DEFAULT_FRAME_HEIGHT, DEFAULT_FRAME_WIDTH, Ffmpeg, FileUtils, GIF_MAX_FRAMES, HwAccel, OUTPUT_FRAME_PROFUCT_FORMAT, PixelFormat, YuvFrame, cmd_ffmpeg, hidden_cmd,
 };
 use std::{
     path::{Path, PathBuf},
@@ -243,7 +241,7 @@ impl Ffmpeg {
                 args.push(quality_clone.clone());
                 // Output pattern
                 args.push(format!("{}/%06d.{}", frames_dir_clone, output_format));
-                let output = std::process::Command::new("ffmpeg").args(&args).output();
+                let output = cmd_ffmpeg().args(&args).output();
                 let result = match output {
                     Ok(output) if output.status.success() => Ok(()),
                     Ok(output) => {
@@ -267,7 +265,7 @@ impl Ffmpeg {
                 let mut attempt = 0;
                 loop {
                     attempt += 1;
-                    let output = std::process::Command::new("ffmpeg")
+                    let output = cmd_ffmpeg()
                         .args([
                             "-i",
                             &source_path_clone2,
@@ -386,7 +384,7 @@ impl Ffmpeg {
                 args.push(quality_clone.clone());
                 // Output pattern
                 args.push(format!("{}/%06d.{}", frames_dir_clone, output_format));
-                let output = std::process::Command::new("ffmpeg").args(&args).output();
+                let output = cmd_ffmpeg().args(&args).output();
                 let result = match output {
                     Ok(output) if output.status.success() => Ok(()),
                     Ok(output) => {
@@ -410,7 +408,7 @@ impl Ffmpeg {
                 let mut attempt = 0;
                 loop {
                     attempt += 1;
-                    let output = std::process::Command::new("ffmpeg")
+                    let output = cmd_ffmpeg()
                         .args([
                             "-i",
                             &source_path_clone2,
@@ -551,7 +549,7 @@ impl Ffmpeg {
         args.push("-q:v".to_string());
         args.push(quality);
         args.push(format!("{}/%06d.{}", frames_dir_str, output_format));
-        let output = std::process::Command::new("ffmpeg")
+        let output = cmd_ffmpeg()
             .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg failed: {}", e))?;
@@ -613,7 +611,7 @@ impl Ffmpeg {
             raw_frame_count
         };
         let frame_count = if frame_count == 0 { 1 } else { frame_count };
-        let output = std::process::Command::new("ffmpeg")
+        let output = cmd_ffmpeg()
             .args([
                 "-i",
                 &source_path_str,
@@ -742,7 +740,7 @@ impl Ffmpeg {
         args.push("-q:v".to_string());
         args.push(quality);
         args.push(format!("{}/%06d.{}", frames_dir_str, output_format));
-        let output = std::process::Command::new("ffmpeg").args(&args).output();
+        let output = cmd_ffmpeg().args(&args).output();
         let mut success = false;
         if let Ok(output) = output {
             if output.status.success() {
@@ -816,7 +814,7 @@ impl Ffmpeg {
         let frame_count = if frame_count == 0 { 1 } else { frame_count };
         let output_format = options.output_format.to_string();
         // Try FFmpeg first
-        let output = std::process::Command::new("ffmpeg")
+        let output = cmd_ffmpeg()
             .args([
                 "-i",
                 &source_path_str,
@@ -1029,7 +1027,7 @@ impl Ffmpeg {
         args.push("-f".to_string());
         args.push("rawvideo".to_string());
         args.push("-".to_string());
-        let output = std::process::Command::new(&self.bin_path)
+        let output = hidden_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg decode failed: {}", e))?;
@@ -1053,7 +1051,7 @@ impl Ffmpeg {
                     "rawvideo".to_string(),
                     "-".to_string(),
                 ];
-                let fallback_output = std::process::Command::new(&self.bin_path)
+                let fallback_output = hidden_cmd(&self.bin_path)
                     .args(&fallback_args)
                     .output()
                     .map_err(|e| format!("FFmpeg software decode failed: {}", e))?;
@@ -1128,7 +1126,7 @@ impl Ffmpeg {
     }
     /// Get video dimensions using ffprobe
     fn get_video_dimensions(&self, source_path: &str) -> Result<(u32, u32), String> {
-        let output = std::process::Command::new(&self.probe_path)
+        let output = hidden_cmd(&self.probe_path)
             .args([
                 "-v",
                 "error",

@@ -24,7 +24,8 @@ pub struct FileUtils;
 impl FileUtils {
     pub fn ensure_dir(path: &Path) -> FileResult<()> {
         if !path.exists() {
-            fs::create_dir_all(path).map_err(|e| FileError::DirectoryCreation(format!("{}: {}", path.display(), e)))?;
+            fs::create_dir_all(path)
+                .map_err(|e| FileError::DirectoryCreation(format!("{}: {}", path.display(), e)))?;
         }
         Ok(())
     }
@@ -44,13 +45,21 @@ impl FileUtils {
         Self::path_exists(Path::new(path))
     }
     pub fn get_file_name(path: &Path) -> FileResult<String> {
-        path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()).ok_or_else(|| FileError::InvalidFileName(path.display().to_string()))
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| FileError::InvalidFileName(path.display().to_string()))
     }
     pub fn get_file_stem(path: &Path) -> FileResult<String> {
-        path.file_stem().and_then(|n| n.to_str()).map(|s| s.to_string()).ok_or_else(|| FileError::InvalidFileName(path.display().to_string()))
+        path.file_stem()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| FileError::InvalidFileName(path.display().to_string()))
     }
     pub fn get_file_extension(path: &Path) -> Option<String> {
-        path.extension().and_then(|e| e.to_str()).map(|s| s.to_string())
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_string())
     }
     pub fn read_file(path: &Path) -> FileResult<Vec<u8>> {
         fs::read(path).map_err(|e| FileError::ReadError(format!("{}: {}", path.display(), e)))
@@ -59,7 +68,8 @@ impl FileUtils {
         Self::read_file(Path::new(path))
     }
     pub fn read_file_to_string(path: &Path) -> FileResult<String> {
-        fs::read_to_string(path).map_err(|e| FileError::ReadError(format!("{}: {}", path.display(), e)))
+        fs::read_to_string(path)
+            .map_err(|e| FileError::ReadError(format!("{}: {}", path.display(), e)))
     }
     pub fn read_file_to_string_str(path: &str) -> FileResult<String> {
         Self::read_file_to_string(Path::new(path))
@@ -68,7 +78,8 @@ impl FileUtils {
         if let Some(parent) = path.parent() {
             let _ = Self::ensure_dir(parent);
         }
-        fs::write(path, contents).map_err(|e| FileError::WriteError(format!("{}: {}", path.display(), e)))
+        fs::write(path, contents)
+            .map_err(|e| FileError::WriteError(format!("{}: {}", path.display(), e)))
     }
     pub fn write_file_str(path: &str, contents: &[u8]) -> FileResult<()> {
         Self::write_file(Path::new(path), contents)
@@ -83,7 +94,9 @@ impl FileUtils {
         if let Some(parent) = dest.parent() {
             let _ = Self::ensure_dir(parent);
         }
-        fs::copy(source, dest).map_err(|e| FileError::CopyError(format!("{} -> {}: {}", source.display(), dest.display(), e)))
+        fs::copy(source, dest).map_err(|e| {
+            FileError::CopyError(format!("{} -> {}: {}", source.display(), dest.display(), e))
+        })
     }
     pub fn copy_file_str(source: &str, dest: &str) -> FileResult<u64> {
         Self::copy_file(Path::new(source), Path::new(dest))
@@ -97,7 +110,9 @@ impl FileUtils {
         let target_path = target_dir.join(&file_name);
         let final_path = if target_path.exists() {
             let stem = Self::get_file_stem(source)?;
-            let ext = Self::get_file_extension(source).map(|e| format!(".{}", e)).unwrap_or_default();
+            let ext = Self::get_file_extension(source)
+                .map(|e| format!(".{}", e))
+                .unwrap_or_default();
             let timestamp = Local::now().timestamp();
             let new_name = format!("{}_{}{}", stem, timestamp, ext);
             target_dir.join(new_name)
@@ -115,13 +130,15 @@ impl FileUtils {
         Self::get_file_size(Path::new(path))
     }
     pub fn remove_file(path: &Path) -> FileResult<()> {
-        fs::remove_file(path).map_err(|e| FileError::RemoveError(format!("{}: {}", path.display(), e)))
+        fs::remove_file(path)
+            .map_err(|e| FileError::RemoveError(format!("{}: {}", path.display(), e)))
     }
     pub fn remove_file_str(path: &str) -> FileResult<()> {
         Self::remove_file(Path::new(path))
     }
     pub fn remove_dir_all(path: &Path) -> FileResult<()> {
-        fs::remove_dir_all(path).map_err(|e| FileError::RemoveError(format!("{}: {}", path.display(), e)))
+        fs::remove_dir_all(path)
+            .map_err(|e| FileError::RemoveError(format!("{}: {}", path.display(), e)))
     }
     pub fn remove_dir_all_str(path: &str) -> FileResult<()> {
         Self::remove_dir_all(Path::new(path))
@@ -138,23 +155,42 @@ impl FileUtils {
         }
         #[cfg(target_os = "windows")]
         {
-            let _ = std::process::Command::new("cmd").args(&["/c", "rmdir", "/s", "/q", &path_str]).output();
+            use crate::hidden_cmd;
+
+            let _ = hidden_cmd("cmd")
+                .args(&["/c", "rmdir", "/s", "/q", &path_str])
+                .output();
             if path.exists() {
-                let _ = std::process::Command::new("powershell")
-                    .args(&["-Command", &format!("Remove-Item -Path '{}' -Recurse -Force -ErrorAction SilentlyContinue", path_str)])
+                let _ = hidden_cmd("powershell")
+                    .args(&[
+                        "-Command",
+                        &format!(
+                            "Remove-Item -Path '{}' -Recurse -Force -ErrorAction SilentlyContinue",
+                            path_str
+                        ),
+                    ])
                     .output();
             }
         }
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
-            let _ = std::process::Command::new("rm").args(&["-rf", &path_str]).output();
+            let _ = hidden_cmd("rm")
+                .args(&["-rf", &path_str])
+                .output();
             if path.exists() {
-                let _ = std::process::Command::new("chflags").args(&["-R", "nouchg", &path_str]).output();
-                let _ = std::process::Command::new("rm").args(&["-rf", &path_str]).output();
+                let _ = hidden_cmd("chflags")
+                    .args(&["-R", "nouchg", &path_str])
+                    .output();
+                let _ = hidden_cmd("rm")
+                    .args(&["-rf", &path_str])
+                    .output();
             }
         }
         if path.exists() {
-            return Err(FileError::RemoveError(format!("Failed to remove directory: {}", path_str)));
+            return Err(FileError::RemoveError(format!(
+                "Failed to remove directory: {}",
+                path_str
+            )));
         }
         Ok(())
     }
@@ -163,7 +199,13 @@ impl FileUtils {
         if !path.exists() {
             return Ok(entries);
         }
-        for entry in fs::read_dir(path).map_err(|e| FileError::Io(format!("Failed to read directory {}: {}", path.display(), e)))? {
+        for entry in fs::read_dir(path).map_err(|e| {
+            FileError::Io(format!(
+                "Failed to read directory {}: {}",
+                path.display(),
+                e
+            ))
+        })? {
             let entry = entry.map_err(|e| FileError::Io(format!("Failed to read entry: {}", e)))?;
             entries.push(entry.path());
         }
@@ -177,29 +219,52 @@ impl FileUtils {
         if !path.exists() {
             return Ok(entries);
         }
-        for entry in fs::read_dir(path).map_err(|e| FileError::Io(format!("Failed to read directory {}: {}", path.display(), e)))? {
+        for entry in fs::read_dir(path).map_err(|e| {
+            FileError::Io(format!(
+                "Failed to read directory {}: {}",
+                path.display(),
+                e
+            ))
+        })? {
             entries.push(entry.map_err(|e| FileError::Io(format!("Failed to read entry: {}", e)))?);
         }
         Ok(entries)
     }
     pub fn is_video_file(path: &Path) -> bool {
-        let video_extensions = ["mp4", "mov", "mkv", "avi", "webm", "flv", "wmv", "m4v", "mpeg", "mpg"];
-        Self::get_file_extension(path).map(|ext| video_extensions.contains(&ext.to_lowercase().as_str())).unwrap_or(false)
+        let video_extensions = [
+            "mp4", "mov", "mkv", "avi", "webm", "flv", "wmv", "m4v", "mpeg", "mpg",
+        ];
+        Self::get_file_extension(path)
+            .map(|ext| video_extensions.contains(&ext.to_lowercase().as_str()))
+            .unwrap_or(false)
     }
     pub fn is_audio_file(path: &Path) -> bool {
         let audio_extensions = ["mp3", "wav", "flac", "aac", "ogg", "m4a", "wma", "aiff"];
-        Self::get_file_extension(path).map(|ext| audio_extensions.contains(&ext.to_lowercase().as_str())).unwrap_or(false)
+        Self::get_file_extension(path)
+            .map(|ext| audio_extensions.contains(&ext.to_lowercase().as_str()))
+            .unwrap_or(false)
     }
     pub fn is_image_file(path: &Path) -> bool {
-        let image_extensions = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "tiff", "ico"];
-        Self::get_file_extension(path).map(|ext| image_extensions.contains(&ext.to_lowercase().as_str())).unwrap_or(false)
+        let image_extensions = [
+            "png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "tiff", "ico",
+        ];
+        Self::get_file_extension(path)
+            .map(|ext| image_extensions.contains(&ext.to_lowercase().as_str()))
+            .unwrap_or(false)
     }
     pub fn is_text_file(path: &Path) -> bool {
-        let text_extensions = ["txt", "md", "csv", "json", "xml", "html", "css", "js", "ts", "rs", "py", "go", "java", "c", "cpp", "h", "hpp"];
-        Self::get_file_extension(path).map(|ext| text_extensions.contains(&ext.to_lowercase().as_str())).unwrap_or(false)
+        let text_extensions = [
+            "txt", "md", "csv", "json", "xml", "html", "css", "js", "ts", "rs", "py", "go", "java",
+            "c", "cpp", "h", "hpp",
+        ];
+        Self::get_file_extension(path)
+            .map(|ext| text_extensions.contains(&ext.to_lowercase().as_str()))
+            .unwrap_or(false)
     }
     pub fn is_gif_file(path: &Path) -> bool {
-        Self::get_file_extension(path).map(|ext| ext.to_lowercase() == "gif").unwrap_or(false)
+        Self::get_file_extension(path)
+            .map(|ext| ext.to_lowercase() == "gif")
+            .unwrap_or(false)
     }
     pub fn is_gif_file_name(file_name: &str) -> bool {
         file_name.to_lowercase().ends_with(".gif")
@@ -226,8 +291,12 @@ impl FileUtils {
     }
     pub fn get_modified_time(path: &Path) -> FileResult<i64> {
         let metadata = fs::metadata(path)?;
-        let modified = metadata.modified().map_err(|e| FileError::Io(e.to_string()))?;
-        let duration = modified.duration_since(std::time::UNIX_EPOCH).map_err(|e| FileError::Io(e.to_string()))?;
+        let modified = metadata
+            .modified()
+            .map_err(|e| FileError::Io(e.to_string()))?;
+        let duration = modified
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| FileError::Io(e.to_string()))?;
         Ok(duration.as_secs() as i64)
     }
     pub fn force_delete_file(path: &Path) -> FileResult<()> {
@@ -239,23 +308,41 @@ impl FileUtils {
         }
         #[cfg(target_os = "windows")]
         {
-            let _ = std::process::Command::new("cmd").args(&["/c", "del", "/f", "/q", &path_str]).output();
+            use crate::hidden_cmd;
+
+            let _ = hidden_cmd("cmd")
+                .args(&["/c", "del", "/f", "/q", &path_str])
+                .output();
             if path.exists() {
-                let _ = std::process::Command::new("powershell")
-                    .args(&["-Command", &format!("Remove-Item -Path '{}' -Force -ErrorAction SilentlyContinue", path_str)])
+                let _ = hidden_cmd("powershell")
+                    .args(&[
+                        "-Command",
+                        &format!(
+                            "Remove-Item -Path '{}' -Force -ErrorAction SilentlyContinue",
+                            path_str
+                        ),
+                    ])
                     .output();
             }
         }
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
-            let _ = std::process::Command::new("rm").args(&["-f", &path_str]).output();
+            let _ = hidden_cmd("rm")
+                .args(&["-f", &path_str])
+                .output();
             if path.exists() {
-                let _ = std::process::Command::new("chflags").args(&["-R", "nouchg", &path_str]).output();
-                let _ = std::process::Command::new("rm").args(&["-f", &path_str]).output();
+                let _ = hidden_cmd("chflags")
+                    .args(&["-R", "nouchg", &path_str])
+                    .output();
+                let _ = hidden_cmd("rm")
+                    .args(&["-f", &path_str])
+                    .output();
             }
         }
         if path.exists() {
-            return Err(FileError::Io("Failed to delete file even with force".to_string()));
+            return Err(FileError::Io(
+                "Failed to delete file even with force".to_string(),
+            ));
         }
         Ok(())
     }
@@ -313,10 +400,25 @@ mod tests {
     }
     #[test]
     fn test_detect_material_type() {
-        assert_eq!(FileUtils::detect_material_type(Path::new("video.mp4")), Some("video".to_string()));
-        assert_eq!(FileUtils::detect_material_type(Path::new("audio.mp3")), Some("audio".to_string()));
-        assert_eq!(FileUtils::detect_material_type(Path::new("image.png")), Some("image".to_string()));
-        assert_eq!(FileUtils::detect_material_type(Path::new("text.txt")), Some("text".to_string()));
-        assert_eq!(FileUtils::detect_material_type(Path::new("unknown.xyz")), None);
+        assert_eq!(
+            FileUtils::detect_material_type(Path::new("video.mp4")),
+            Some("video".to_string())
+        );
+        assert_eq!(
+            FileUtils::detect_material_type(Path::new("audio.mp3")),
+            Some("audio".to_string())
+        );
+        assert_eq!(
+            FileUtils::detect_material_type(Path::new("image.png")),
+            Some("image".to_string())
+        );
+        assert_eq!(
+            FileUtils::detect_material_type(Path::new("text.txt")),
+            Some("text".to_string())
+        );
+        assert_eq!(
+            FileUtils::detect_material_type(Path::new("unknown.xyz")),
+            None
+        );
     }
 }

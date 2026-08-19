@@ -1,4 +1,5 @@
 use super::core::Ffmpeg;
+use crate::cmd_ffprobe;
 impl Ffmpeg {
     /// Get keyframe timestamps from a video file
     ///
@@ -16,8 +17,18 @@ impl Ffmpeg {
         if !std::path::Path::new(file_path).exists() {
             return Err(format!("File not found: {}", file_path));
         }
-        let output = std::process::Command::new("ffprobe")
-            .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "frame=key_frame,pts_time", "-of", "csv=p=0", file_path])
+        let output = cmd_ffprobe()
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "frame=key_frame,pts_time",
+                "-of",
+                "csv=p=0",
+                file_path,
+            ])
             .output()
             .map_err(|e| format!("ffprobe failed: {}", e))?;
         if !output.status.success() {
@@ -57,8 +68,18 @@ impl Ffmpeg {
     /// * `Ok(Vec<f64>)` - List of keyframe timestamps in seconds
     /// * `Err(String)` - Error message if extraction fails
     fn get_keyframe_timestamps_from_packets(&self, file_path: &str) -> Result<Vec<f64>, String> {
-        let output = std::process::Command::new("ffprobe")
-            .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=flags,pts_time", "-of", "csv=p=0", file_path])
+        let output = cmd_ffprobe()
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "packet=flags,pts_time",
+                "-of",
+                "csv=p=0",
+                file_path,
+            ])
             .output()
             .map_err(|e| format!("ffprobe failed: {}", e))?;
         let output_str = String::from_utf8_lossy(&output.stdout);

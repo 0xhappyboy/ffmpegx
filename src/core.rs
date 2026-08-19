@@ -6,7 +6,7 @@
 //! process resources, ensuring no state conflicts between parallel operations.
 use crate::{
     AudioMetadata, FrameExtractOptions, ImageMetadata, PersistentProcess, ThumbnailOptions,
-    VideoMetadata,
+    VideoMetadata, hidden_cmd,
 };
 use std::{
     env, fs,
@@ -67,14 +67,14 @@ pub fn find_ffmpeg_path() -> Option<String> {
 }
 /// Check if ffmpeg at given path is executable and working
 fn is_ffmpeg_executable(path: &Path) -> bool {
-    if let Ok(output) = Command::new(path).arg("-version").output() {
+    if let Ok(output) = hidden_cmd(path.to_str().unwrap()).arg("-version").output() {
         return output.status.success();
     }
     false
 }
 /// Check if ffmpeg is available via command name
 fn is_ffmpeg_available(cmd: &str) -> bool {
-    Command::new(cmd)
+    hidden_cmd(cmd)
         .arg("-version")
         .output()
         .map(|o| o.status.success())
@@ -247,7 +247,7 @@ impl Ffmpeg {
             *guard = None;
         }
         // Start new persistent ffmpeg process
-        let mut child = Command::new(&self.bin_path)
+        let mut child = hidden_cmd(&self.bin_path)
             .args([
                 "-i",
                 video_path,
@@ -342,7 +342,7 @@ impl Ffmpeg {
     /// * `true` if ffmpeg is available and executable
     /// * `false` otherwise
     pub fn is_available(&self) -> bool {
-        Command::new(&self.bin_path)
+        hidden_cmd(&self.bin_path)
             .arg("-version")
             .output()
             .map(|o| o.status.success())
@@ -354,7 +354,7 @@ impl Ffmpeg {
     /// * `Some(String)` - The ffmpeg version string
     /// * `None` - If ffmpeg is not available or version cannot be determined
     pub fn get_version(&self) -> Option<String> {
-        let output = Command::new(&self.bin_path).arg("-version").output().ok()?;
+        let output = hidden_cmd(&self.bin_path).arg("-version").output().ok()?;
         if !output.status.success() {
             return None;
         }
@@ -377,7 +377,7 @@ impl Ffmpeg {
         if !path_obj.exists() {
             return Err(format!("File not found: {}", path_obj.display()));
         }
-        let output = Command::new(&self.probe_path)
+        let output = hidden_cmd(&self.probe_path)
             .args([
                 "-v",
                 "quiet",
@@ -419,7 +419,7 @@ impl Ffmpeg {
     /// * `Ok(AudioMetadata)` - Complete audio metadata
     /// * `Err(String)` - Error message if metadata extraction fails
     pub fn get_audio_metadata(&self, path: &str) -> Result<AudioMetadata, String> {
-        let output = Command::new(&self.probe_path)
+        let output = hidden_cmd(&self.probe_path)
             .args([
                 "-v",
                 "quiet",
@@ -477,7 +477,7 @@ impl Ffmpeg {
     /// * `Ok(Vec<u8>)` - JPEG image data
     /// * `Err(String)` - Error message if extraction fails
     pub fn extract_frame(&self, video_path: &str, time: f64) -> Result<Vec<u8>, String> {
-        let output = Command::new(&self.bin_path)
+        let output = hidden_cmd(&self.bin_path)
             .args([
                 "-ss",
                 &time.to_string(),
@@ -518,7 +518,7 @@ impl Ffmpeg {
             return Err(format!("File not found: {}", path));
         }
         // Method 1: Count keyframes from packet flags
-        let output = Command::new(&self.probe_path)
+        let output = hidden_cmd(&self.probe_path)
             .args([
                 "-v",
                 "error",
@@ -540,7 +540,7 @@ impl Ffmpeg {
         let count = stdout.lines().filter(|line| line.contains('K')).count();
         // Method 2: Fallback to frame analysis
         if count == 0 {
-            let output2 = Command::new(&self.probe_path)
+            let output2 = hidden_cmd(&self.probe_path)
                 .args([
                     "-v",
                     "error",
@@ -562,7 +562,7 @@ impl Ffmpeg {
         }
         // Method 3: Use ffmpeg filter
         if count == 0 {
-            let output3 = Command::new(&self.bin_path)
+            let output3 = hidden_cmd(&self.bin_path)
                 .args([
                     "-i",
                     path,
@@ -655,7 +655,7 @@ impl Ffmpeg {
             "-y".to_string(),
             output_path.to_string(),
         ];
-        let output = Command::new(&self.bin_path)
+        let output = hidden_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to create empty video: {}", e))?;
@@ -736,7 +736,7 @@ impl Ffmpeg {
         }
         args.push("-y".to_string());
         args.push(output_path.to_string_lossy().to_string());
-        let output = Command::new(&self.bin_path)
+        let output = hidden_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to generate thumbnail: {}", e))?;
@@ -799,7 +799,7 @@ impl Ffmpeg {
         }
         args.push("-y".to_string());
         args.push(output_path.to_string());
-        let output = Command::new(&self.bin_path)
+        let output = hidden_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to extract first frame: {}", e))?;
@@ -862,7 +862,7 @@ impl Ffmpeg {
         }
         args.push("-y".to_string());
         args.push(output_path.to_string());
-        let output = Command::new(&self.bin_path)
+        let output = hidden_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to extract last frame: {}", e))?;
@@ -952,7 +952,7 @@ impl Ffmpeg {
         };
         args.push("-y".to_string());
         args.push(final_pattern.clone());
-        let output = Command::new(&self.bin_path)
+        let output = hidden_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to extract frames: {}", e))?;
@@ -993,7 +993,7 @@ impl Ffmpeg {
         if !Path::new(input_path).exists() {
             return Err(format!("Input file not found: {}", input_path));
         }
-        let output = Command::new(&self.probe_path)
+        let output = hidden_cmd(&self.probe_path)
             .args([
                 "-v",
                 "error",
@@ -1102,7 +1102,7 @@ impl Ffmpeg {
         args.push(q.to_string());
         args.push("-y".to_string());
         args.push(output_path.to_string_lossy().to_string());
-        let output = Command::new(&self.bin_path)
+        let output = hidden_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg failed: {}", e))?;

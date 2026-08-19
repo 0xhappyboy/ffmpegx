@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::process::{Child, ChildStdin, ChildStdout};
 use uuid::Uuid;
+
+use crate::hidden_cmd;
 /// Persistent ffmpeg process for fast frame extraction
 ///
 /// Holds the child process handles and state for a persistent ffmpeg
@@ -555,7 +557,7 @@ impl HwAccel {
     }
     /// Get all hardware acceleration backends supported by this FFmpeg binary
     pub fn get_supported_backends(ffmpeg_path: &str) -> Vec<HwAccel> {
-        let output = std::process::Command::new(ffmpeg_path)
+        let output = hidden_cmd(ffmpeg_path)
             .arg("-hwaccels")
             .output();
         let output_str = match output {

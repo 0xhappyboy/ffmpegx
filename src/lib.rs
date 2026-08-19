@@ -1,4 +1,5 @@
 pub mod audio;
+pub(crate) mod cmd;
 pub mod config;
 pub mod core;
 pub mod decode;
@@ -7,8 +8,8 @@ pub(crate) mod files;
 pub mod keyframe;
 pub mod media;
 pub mod types;
-
 pub use audio::*;
+pub(crate) use cmd::*;
 pub use config::*;
 pub use core::*;
 pub use decode::*;
