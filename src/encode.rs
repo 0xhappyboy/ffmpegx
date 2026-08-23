@@ -680,7 +680,6 @@ impl Ffmpeg {
                 "0:v:0",
                 "-map",
                 "1:a:0",
-                "-shortest",
                 output_path.to_str().unwrap(),
             ])
             .output()
@@ -782,7 +781,6 @@ impl Ffmpeg {
             .arg("0:v:0")
             .arg("-map")
             .arg("1:a:0")
-            .arg("-shortest")
             .arg(final_output.to_str().unwrap());
         // Execute FFmpeg command
         let output = cmd
