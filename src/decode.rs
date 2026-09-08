@@ -4,7 +4,9 @@
 //! GIF decoding, image decoding, and text rendering. It supports sharded
 //! (parallel chunk-based) decoding for large video files.
 use crate::{
-    DEFAULT_AUDIO_RATE, DEFAULT_DECODE_FRAME_QUALITY, DEFAULT_FPS, DEFAULT_FRAME_HEIGHT, DEFAULT_FRAME_WIDTH, Ffmpeg, FileUtils, GIF_MAX_FRAMES, HwAccel, OUTPUT_FRAME_PROFUCT_FORMAT, PixelFormat, YuvFrame, cmd_ffmpeg, hidden_cmd,
+    DEFAULT_AUDIO_RATE, DEFAULT_DECODE_FRAME_QUALITY, DEFAULT_FPS, DEFAULT_FRAME_HEIGHT,
+    DEFAULT_FRAME_WIDTH, Ffmpeg, FileUtils, GIF_MAX_FRAMES, HwAccel, OUTPUT_FRAME_PROFUCT_FORMAT,
+    PixelFormat, YuvFrame, cmd_ffmpeg, hidden_cmd,
 };
 use std::{
     path::{Path, PathBuf},
@@ -453,8 +455,9 @@ impl Ffmpeg {
     }
     /// Decode GIF: generate frame sequence
     ///
-    /// Decodes a GIF file into a sequence of JPEG frames. Handles frame
-    /// rate conversion and limits the total number of frames extracted.
+    /// Decodes a GIF file into a sequence of PNG frames to preserve transparency
+    /// and color space. Handles frame rate conversion and limits the total
+    /// number of frames extracted.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source GIF file
@@ -488,6 +491,7 @@ impl Ffmpeg {
     /// Decode GIF with hardware acceleration
     ///
     /// Decodes a GIF file using hardware acceleration.
+    /// Uses PNG format to preserve transparency and color space.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source GIF file
@@ -533,7 +537,8 @@ impl Ffmpeg {
             raw_frame_count
         };
         let frame_count = if frame_count == 0 { 1 } else { frame_count };
-        let output_format = options.output_format.to_string();
+        // GIF uses PNG format to preserve transparency and color space
+        let output_format = "png";
         let mut args = Vec::new();
         // Add hardware acceleration if enabled
         if let Some(accel) = hwaccel {
@@ -543,11 +548,18 @@ impl Ffmpeg {
         args.push("-i".to_string());
         args.push(source_path_str);
         args.push("-vf".to_string());
-        args.push(format!("fps={},scale={}:{}", fps, width, height));
+        // Use rgba pixel format to preserve transparency
+        args.push(format!(
+            "fps={},scale={}:{},format=rgba",
+            fps, width, height
+        ));
+        args.push("-frames:v".to_string());
+        args.push(frame_count.to_string());
         args.push("-f".to_string());
         args.push("image2".to_string());
-        args.push("-q:v".to_string());
-        args.push(quality);
+        // PNG compression level (0-9, 6 is default)
+        args.push("-compression_level".to_string());
+        args.push("6".to_string());
         args.push(format!("{}/%06d.{}", frames_dir_str, output_format));
         let output = cmd_ffmpeg()
             .args(&args)
@@ -565,7 +577,8 @@ impl Ffmpeg {
     }
     /// Decode GIF with software decoding (fallback)
     ///
-    /// This is the original software decoding implementation.
+    /// This is the software decoding implementation for GIF.
+    /// Uses PNG format to preserve transparency and color space.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source GIF file
@@ -604,23 +617,27 @@ impl Ffmpeg {
         let max_frames = options.max_frames;
         // Calculate frame count with limit
         let raw_frame_count = (duration * fps) as u64;
-        let output_format = options.output_format.to_string();
         let frame_count = if raw_frame_count > max_frames {
             max_frames
         } else {
             raw_frame_count
         };
         let frame_count = if frame_count == 0 { 1 } else { frame_count };
+        // GIF uses PNG format to preserve transparency and color space
+        let output_format = "png";
         let output = cmd_ffmpeg()
             .args([
                 "-i",
                 &source_path_str,
                 "-vf",
-                &format!("fps={},scale={}:{}", fps, width, height),
+                // Use rgba pixel format to preserve transparency
+                &format!("fps={},scale={}:{},format=rgba", fps, width, height),
+                "-frames:v",
+                &frame_count.to_string(),
                 "-f",
                 "image2",
-                "-q:v",
-                &quality,
+                "-compression_level",
+                "6",
                 &format!("{}/%06d.{}", frames_dir_str, output_format),
             ])
             .output()
@@ -639,6 +656,7 @@ impl Ffmpeg {
     ///
     /// Decodes an image file into one or more frames. For static images,
     /// the frame is duplicated to fill the desired duration.
+    /// Uses PNG format to preserve transparency and color space.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source image file
@@ -672,6 +690,7 @@ impl Ffmpeg {
     /// Decode image with hardware acceleration
     ///
     /// Decodes an image file using hardware acceleration.
+    /// Uses PNG format to preserve transparency and color space.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source image file
@@ -688,7 +707,6 @@ impl Ffmpeg {
         options: &DecodeImageOptions,
     ) -> Result<(), String> {
         let source_path = Path::new(source_path);
-        let output_format = options.output_format.to_string();
         if !source_path.exists() {
             return Err(format!("Source file not found: {}", source_path.display()));
         }
@@ -696,7 +714,7 @@ impl Ffmpeg {
         if frames_dir.exists() {
             let existing_count = self.count_frames(frames_dir);
             if existing_count > 0 {
-                let first_frame = frames_dir.join(format!("000001.{}", output_format));
+                let first_frame = frames_dir.join("000001.png");
                 if first_frame.exists() {
                     if let Ok(reader) = image::ImageReader::open(&first_frame) {
                         if reader.into_dimensions().is_ok() {
@@ -719,7 +737,8 @@ impl Ffmpeg {
         let hwaccel = options.hwaccel;
         let frame_count = (duration * fps).ceil() as u64;
         let frame_count = if frame_count == 0 { 1 } else { frame_count };
-        let output_format = options.output_format.to_string();
+        // Images use PNG format to preserve transparency and color space
+        let output_format = "png";
         let mut args = Vec::new();
         // Add hardware acceleration if enabled
         if let Some(accel) = hwaccel {
@@ -729,16 +748,18 @@ impl Ffmpeg {
         args.push("-i".to_string());
         args.push(source_path_str);
         args.push("-vf".to_string());
+        // Use rgba pixel format to preserve transparency
         args.push(format!(
-            "fps={},scale={}:{},format=yuvj420p",
+            "fps={},scale={}:{},format=rgba",
             fps, width, height
         ));
         args.push("-frames:v".to_string());
         args.push(frame_count.to_string());
         args.push("-f".to_string());
         args.push("image2".to_string());
-        args.push("-q:v".to_string());
-        args.push(quality);
+        // PNG compression level (0-9, 6 is default)
+        args.push("-compression_level".to_string());
+        args.push("6".to_string());
         args.push(format!("{}/%06d.{}", frames_dir_str, output_format));
         let output = cmd_ffmpeg().args(&args).output();
         let mut success = false;
@@ -765,7 +786,8 @@ impl Ffmpeg {
     }
     /// Decode image with software decoding (fallback)
     ///
-    /// This is the original software decoding implementation.
+    /// This is the software decoding implementation.
+    /// Uses PNG format to preserve transparency and color space.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source image file
@@ -781,7 +803,6 @@ impl Ffmpeg {
         frames_dir: &Path,
         options: &DecodeImageOptions,
     ) -> Result<(), String> {
-        let output_format = options.output_format.to_string();
         let source_path = Path::new(source_path);
         if !source_path.exists() {
             return Err(format!("Source file not found: {}", source_path.display()));
@@ -790,7 +811,7 @@ impl Ffmpeg {
         if frames_dir.exists() {
             let existing_count = self.count_frames(frames_dir);
             if existing_count > 0 {
-                let first_frame = frames_dir.join(format!("000001.{}", output_format));
+                let first_frame = frames_dir.join("000001.png");
                 if first_frame.exists() {
                     if let Ok(reader) = image::ImageReader::open(&first_frame) {
                         if reader.into_dimensions().is_ok() {
@@ -812,20 +833,21 @@ impl Ffmpeg {
         let quality = options.quality.to_string();
         let frame_count = (duration * fps).ceil() as u64;
         let frame_count = if frame_count == 0 { 1 } else { frame_count };
-        let output_format = options.output_format.to_string();
-        // Try FFmpeg first
+        // Images use PNG format to preserve transparency and color space
+        let output_format = "png";
+        // Try FFmpeg first with rgba pixel format
         let output = cmd_ffmpeg()
             .args([
                 "-i",
                 &source_path_str,
                 "-vf",
-                &format!("fps={},scale={}:{},format=yuvj420p", fps, width, height),
+                &format!("fps={},scale={}:{},format=rgba", fps, width, height),
                 "-frames:v",
                 &frame_count.to_string(),
                 "-f",
                 "image2",
-                "-q:v",
-                &quality,
+                "-compression_level",
+                "6",
                 &format!("{}/%06d.{}", frames_dir_str, output_format),
             ])
             .output();
@@ -842,14 +864,15 @@ impl Ffmpeg {
                 }
             }
         }
-        // Fallback: use image crate directly
+        // Fallback: use image crate directly for better alpha support
         if !success {
             match image::ImageReader::open(source_path) {
                 Ok(reader) => match reader.decode() {
                     Ok(dynamic_img) => {
-                        let rgb_img = dynamic_img.to_rgb8();
                         let frame_path = frames_dir.join(format!("000001.{}", output_format));
-                        let _ = rgb_img.save(&frame_path);
+                        // Preserve alpha channel using RGBA
+                        let rgba_img = dynamic_img.to_rgba8();
+                        let _ = rgba_img.save(&frame_path);
                         if frame_path.exists() {
                             if let Ok(reader) = image::ImageReader::open(&frame_path) {
                                 if reader.into_dimensions().is_ok() {
@@ -922,7 +945,7 @@ impl Ffmpeg {
     }
     /// Count the number of frames in a directory
     ///
-    /// Counts JPEG/JPG files in the given directory. Used to verify
+    /// Counts PNG and JPEG files in the given directory. Used to verify
     /// frame extraction results.
     ///
     /// # Arguments
@@ -941,7 +964,7 @@ impl Ffmpeg {
                     e.path()
                         .extension()
                         .and_then(|ext| ext.to_str())
-                        .map(|s| s == "jpg" || s == "jpeg")
+                        .map(|s| s == "jpg" || s == "jpeg" || s == "png")
                         .unwrap_or(false)
                 })
                 .count() as u64
@@ -952,7 +975,7 @@ impl Ffmpeg {
     /// Get frame sequence information (frame count, file paths, etc.)
     ///
     /// Scans a directory and returns the count and sorted list of
-    /// all JPEG frame files in the directory.
+    /// all frame files (PNG and JPEG) in the directory.
     ///
     /// # Arguments
     /// * `frames_dir` - Directory containing frame files
@@ -975,7 +998,7 @@ impl Ffmpeg {
             let path = entry.path();
             if path.is_file() {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if ext == "jpg" || ext == "jpeg" {
+                if ext == "jpg" || ext == "jpeg" || ext == "png" {
                     frame_files.push(path);
                 }
             }
@@ -1062,7 +1085,7 @@ impl Ffmpeg {
                 if fallback_output.stdout.is_empty() {
                     return Ok(Vec::new());
                 }
-                // 内联解析 fallback_output
+                // Parse fallback_output
                 let data = &fallback_output.stdout;
                 let y_size = (width * height) as usize;
                 let uv_size = ((width / 2) * (height / 2)) as usize;
