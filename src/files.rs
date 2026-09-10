@@ -155,13 +155,11 @@ impl FileUtils {
         }
         #[cfg(target_os = "windows")]
         {
-            use crate::hidden_cmd;
-
-            let _ = hidden_cmd("cmd")
+            let _ = crate::hidden_cmd("cmd")
                 .args(&["/c", "rmdir", "/s", "/q", &path_str])
                 .output();
             if path.exists() {
-                let _ = hidden_cmd("powershell")
+                let _ = crate::hidden_cmd("powershell")
                     .args(&[
                         "-Command",
                         &format!(
@@ -174,16 +172,12 @@ impl FileUtils {
         }
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
-            let _ = hidden_cmd("rm")
-                .args(&["-rf", &path_str])
-                .output();
+            let _ = crate::hidden_cmd("rm").args(&["-rf", &path_str]).output();
             if path.exists() {
-                let _ = hidden_cmd("chflags")
+                let _ = crate::hidden_cmd("chflags")
                     .args(&["-R", "nouchg", &path_str])
                     .output();
-                let _ = hidden_cmd("rm")
-                    .args(&["-rf", &path_str])
-                    .output();
+                let _ = crate::hidden_cmd("rm").args(&["-rf", &path_str]).output();
             }
         }
         if path.exists() {
@@ -308,13 +302,11 @@ impl FileUtils {
         }
         #[cfg(target_os = "windows")]
         {
-            use crate::hidden_cmd;
-
-            let _ = hidden_cmd("cmd")
+            let _ = crate::hidden_cmd("cmd")
                 .args(&["/c", "del", "/f", "/q", &path_str])
                 .output();
             if path.exists() {
-                let _ = hidden_cmd("powershell")
+                let _ = crate::hidden_cmd("powershell")
                     .args(&[
                         "-Command",
                         &format!(
@@ -327,16 +319,12 @@ impl FileUtils {
         }
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
-            let _ = hidden_cmd("rm")
-                .args(&["-f", &path_str])
-                .output();
+            let _ = crate::hidden_cmd("rm").args(&["-f", &path_str]).output();
             if path.exists() {
-                let _ = hidden_cmd("chflags")
+                let _ = crate::hidden_cmd("chflags")
                     .args(&["-R", "nouchg", &path_str])
                     .output();
-                let _ = hidden_cmd("rm")
-                    .args(&["-f", &path_str])
-                    .output();
+                let _ = crate::hidden_cmd("rm").args(&["-f", &path_str]).output();
             }
         }
         if path.exists() {
