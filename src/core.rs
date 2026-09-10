@@ -12,7 +12,7 @@ use std::{
     env, fs,
     io::{Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 /// Find ffmpeg executable path
 ///
@@ -26,7 +26,7 @@ use std::{
 /// * `None` - ffmpeg not found
 pub fn find_ffmpeg_path() -> Option<String> {
     // 1. First check Tauri application bin directories
-    let possible_paths = get_tauri_bin_paths();
+    let possible_paths = get_bin_paths();
     for path in possible_paths {
         if path.exists() {
             // Check ffmpeg executable in the directory
@@ -81,47 +81,34 @@ fn is_ffmpeg_available(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 /// Get possible Tauri application bin directory paths
-fn get_tauri_bin_paths() -> Vec<PathBuf> {
+///
+/// Non-Windows search order:
+/// 1. Contents/MacOS/
+/// 2. Contents/MacOS/bin/
+/// 3. Contents/Resources/
+/// 4. Contents/Resources/bin/
+fn get_bin_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    // Get current executable path
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
-            // 1. Same directory as executable
+            // 1. Contents/MacOS/
             paths.push(exe_dir.to_path_buf());
-            // 2. ../bin relative to executable
-            if let Some(parent) = exe_dir.parent() {
-                paths.push(parent.join("bin"));
-            }
-            // 3. ../Resources/bin relative to executable (macOS app bundle)
-            if let Some(parent) = exe_dir.parent() {
-                paths.push(parent.join("Resources").join("bin"));
+            // 2. Contents/MacOS/bin/
+            paths.push(exe_dir.join("bin"));
+
+            if let Some(contents_dir) = exe_dir.parent() {
+                // 3. Contents/Resources/
+                paths.push(contents_dir.join("Resources"));
+                // 4. Contents/Resources/bin/
+                paths.push(contents_dir.join("Resources").join("bin"));
             }
         }
     }
-    // 4. Current working directory / bin
-    if let Ok(cwd) = env::current_dir() {
+    // Development-time fallbacks
+    if let Ok(cwd) = std::env::current_dir() {
         paths.push(cwd.join("bin"));
         paths.push(cwd.join("resources").join("bin"));
     }
-    // 5. Tauri typical paths
-    // When running as a Tauri app, the binary is in a specific location
-    if let Ok(exe_path) = std::env::current_exe() {
-        // For Tauri apps, the binary is usually in:
-        // - macOS: YourApp.app/Contents/MacOS/
-        // - Windows: target/release/ or the install directory
-        // - Linux: target/release/ or /usr/bin/
-        if let Some(exe_dir) = exe_path.parent() {
-            // Try to find bin directory relative to executable parent
-            // This handles common Tauri build structures
-            paths.push(exe_dir.join("bin"));
-            // For macOS app bundles: ../Resources/bin
-            if let Some(parent) = exe_dir.parent() {
-                paths.push(parent.join("Resources").join("bin"));
-                paths.push(parent.join("bin"));
-            }
-        }
-    }
-    // Remove duplicates
     paths.sort();
     paths.dedup();
     paths
