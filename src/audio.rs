@@ -1,5 +1,5 @@
-use crate::{DEFAULT_AUDIO_RATE, cmd_ffmpeg};
-use std::{fs, path::Path, process::Command};
+use crate::{DEFAULT_AUDIO_RATE, hidden_cmd};
+use std::{fs, path::Path};
 /// Extract PCM audio data from an audio file at specified time range
 ///
 /// This function uses ffmpeg to extract PCM audio data from the given audio file
@@ -7,6 +7,7 @@ use std::{fs, path::Path, process::Command};
 /// at 44.1kHz with 2 channels, suitable for waveform rendering and audio analysis.
 ///
 /// # Arguments
+/// * `ffmpeg_bin` - Resolved path to the ffmpeg binary
 /// * `audio_path` - Path to the source audio file
 /// * `start_time` - Start time in seconds
 /// * `duration` - Duration in seconds to extract
@@ -15,6 +16,7 @@ use std::{fs, path::Path, process::Command};
 /// * `Ok(Vec<f32>)` - Vector of PCM samples (f32, -1.0 to 1.0)
 /// * `Err(String)` - Error message if extraction fails
 pub fn extract_audio_pcm_data_from_path(
+    ffmpeg_bin: &str,
     audio_path: &Path,
     start_time: f64,
     duration: f64,
@@ -25,7 +27,7 @@ pub fn extract_audio_pcm_data_from_path(
     if duration <= 0.0 {
         return Ok(Vec::new());
     }
-    let output = cmd_ffmpeg()
+    let output = hidden_cmd(ffmpeg_bin)
         .args([
             "-ss",
             &start_time.to_string(),
@@ -48,6 +50,7 @@ pub fn extract_audio_pcm_data_from_path(
         .map_err(|e| format!("Failed to extract audio: {}", e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        let _ = stderr;
         return Ok(Vec::new());
     }
     let samples: Vec<f32> = output
@@ -64,13 +67,18 @@ pub fn extract_audio_pcm_data_from_path(
 /// fast subsequent reads without re-decoding.
 ///
 /// # Arguments
+/// * `ffmpeg_bin` - Resolved path to the ffmpeg binary
 /// * `source_path` - Path to the source audio file
 /// * `output_path` - Path where the PCM cache file will be written
 ///
 /// # Returns
 /// * `Ok(())` on success
 /// * `Err(String)` - Error message if decoding fails
-pub fn decode_audio_to_pcm(source_path: &Path, output_path: &Path) -> Result<(), String> {
+pub fn decode_audio_to_pcm(
+    ffmpeg_bin: &str,
+    source_path: &Path,
+    output_path: &Path,
+) -> Result<(), String> {
     if !source_path.exists() {
         return Err(format!("Source file not found: {:?}", source_path));
     }
@@ -79,7 +87,7 @@ pub fn decode_audio_to_pcm(source_path: &Path, output_path: &Path) -> Result<(),
             fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
         }
     }
-    let output = cmd_ffmpeg()
+    let output = hidden_cmd(ffmpeg_bin)
         .args([
             "-i",
             source_path.to_str().unwrap(),

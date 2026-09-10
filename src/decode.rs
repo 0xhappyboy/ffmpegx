@@ -206,6 +206,8 @@ impl Ffmpeg {
         let start_time_clone = start_time;
         let hwaccel_clone = hwaccel;
         let output_format = options.output_format.to_string();
+        // Resolve the ffmpeg binary path once, so the thread closures can use it.
+        let bin_path = self.bin_path.clone();
         // Spawn thread for JPEG frame extraction
         let frame_handle = thread::spawn(move || {
             let max_retries = 2;
@@ -243,7 +245,7 @@ impl Ffmpeg {
                 args.push(quality_clone.clone());
                 // Output pattern
                 args.push(format!("{}/%06d.{}", frames_dir_clone, output_format));
-                let output = cmd_ffmpeg().args(&args).output();
+                let output = hidden_cmd(&bin_path).args(&args).output();
                 let result = match output {
                     Ok(output) if output.status.success() => Ok(()),
                     Ok(output) => {
@@ -262,12 +264,13 @@ impl Ffmpeg {
         if options.extract_audio {
             let audio_path_str = audio_path.to_string_lossy().to_string();
             let source_path_clone2 = source_path_str.clone();
+            let bin_path_audio = self.bin_path.clone();
             let audio_handle = thread::spawn(move || {
                 let max_retries = 2;
                 let mut attempt = 0;
                 loop {
                     attempt += 1;
-                    let output = cmd_ffmpeg()
+                    let output = hidden_cmd(&bin_path_audio)
                         .args([
                             "-i",
                             &source_path_clone2,
@@ -354,6 +357,8 @@ impl Ffmpeg {
         let duration_clone = duration;
         let start_time_clone = start_time;
         let output_format = options.output_format.to_string();
+        // Resolve the ffmpeg binary path once, so the thread closures can use it.
+        let bin_path = self.bin_path.clone();
         // Spawn thread for JPEG frame extraction
         let frame_handle = thread::spawn(move || {
             let max_retries = 2;
@@ -386,7 +391,7 @@ impl Ffmpeg {
                 args.push(quality_clone.clone());
                 // Output pattern
                 args.push(format!("{}/%06d.{}", frames_dir_clone, output_format));
-                let output = cmd_ffmpeg().args(&args).output();
+                let output = hidden_cmd(&bin_path).args(&args).output();
                 let result = match output {
                     Ok(output) if output.status.success() => Ok(()),
                     Ok(output) => {
@@ -405,12 +410,13 @@ impl Ffmpeg {
         if options.extract_audio {
             let audio_path_str = audio_path.to_string_lossy().to_string();
             let source_path_clone2 = source_path_str.clone();
+            let bin_path_audio = self.bin_path.clone();
             let audio_handle = thread::spawn(move || {
                 let max_retries = 2;
                 let mut attempt = 0;
                 loop {
                     attempt += 1;
-                    let output = cmd_ffmpeg()
+                    let output = hidden_cmd(&bin_path_audio)
                         .args([
                             "-i",
                             &source_path_clone2,
@@ -561,7 +567,7 @@ impl Ffmpeg {
         args.push("-compression_level".to_string());
         args.push("6".to_string());
         args.push(format!("{}/%06d.{}", frames_dir_str, output_format));
-        let output = cmd_ffmpeg()
+        let output = hidden_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg failed: {}", e))?;
@@ -625,7 +631,7 @@ impl Ffmpeg {
         let frame_count = if frame_count == 0 { 1 } else { frame_count };
         // GIF uses PNG format to preserve transparency and color space
         let output_format = "png";
-        let output = cmd_ffmpeg()
+        let output = hidden_cmd(&self.bin_path)
             .args([
                 "-i",
                 &source_path_str,
@@ -761,7 +767,7 @@ impl Ffmpeg {
         args.push("-compression_level".to_string());
         args.push("6".to_string());
         args.push(format!("{}/%06d.{}", frames_dir_str, output_format));
-        let output = cmd_ffmpeg().args(&args).output();
+        let output = hidden_cmd(&self.bin_path).args(&args).output();
         let mut success = false;
         if let Ok(output) = output {
             if output.status.success() {
@@ -836,7 +842,7 @@ impl Ffmpeg {
         // Images use PNG format to preserve transparency and color space
         let output_format = "png";
         // Try FFmpeg first with rgba pixel format
-        let output = cmd_ffmpeg()
+        let output = hidden_cmd(&self.bin_path)
             .args([
                 "-i",
                 &source_path_str,

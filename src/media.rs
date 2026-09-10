@@ -1,9 +1,9 @@
 use crate::{
-    AudioMetadata, BasicMetadata, DEFAULT_AUDIO_RATE, Ffmpeg, ImageMetadata, cmd_ffmpeg,
-    cmd_ffprobe,
+    AudioMetadata, BasicMetadata, DEFAULT_AUDIO_RATE, Ffmpeg, ImageMetadata, find_ffmpeg_path,
+    hidden_cmd,
 };
 use serde_json::Value;
-use std::{fs, path::Path, process::Command};
+use std::{fs, path::Path};
 /// Get video metadata as JSON from file path
 ///
 /// Convenience wrapper around Ffmpeg::get_video_info_json that returns
@@ -129,7 +129,9 @@ pub fn generate_waveform_image(
                 .map_err(|e| format!("Failed to create output directory: {}", e))?;
         }
     }
-    let probe_output = cmd_ffprobe()
+    let ffmpeg_bin = find_ffmpeg_path().ok_or("ffmpeg not found")?;
+    let probe_bin = Ffmpeg::with_bin_path(&ffmpeg_bin).probe_path.clone();
+    let probe_output = hidden_cmd(&probe_bin)
         .args([
             "-v",
             "error",
@@ -145,7 +147,7 @@ pub fn generate_waveform_image(
         .map_err(|e| format!("Failed to probe audio: {}", e))?;
     let info = String::from_utf8_lossy(&probe_output.stdout);
     let lines: Vec<&str> = info.lines().collect();
-    let sample_rate = if lines.len() >= 1 {
+    let sample_rate = if !lines.is_empty() {
         lines[0].parse::<u32>().unwrap_or(DEFAULT_AUDIO_RATE)
     } else {
         DEFAULT_AUDIO_RATE
@@ -158,7 +160,7 @@ pub fn generate_waveform_image(
     } else {
         format!("showwavespic=s={}x{}:colors={}", width, height, color)
     };
-    let output = cmd_ffmpeg()
+    let output = hidden_cmd(&ffmpeg_bin)
         .args([
             "-i",
             source_path,
@@ -230,7 +232,8 @@ pub fn generate_text_thumbnail(
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
     };
     let font = font_path.unwrap_or(default_font);
-    let output = cmd_ffmpeg()
+    let ffmpeg_bin = find_ffmpeg_path().ok_or("ffmpeg not found")?;
+    let output = hidden_cmd(&ffmpeg_bin)
         .args([
             "-f",
             "lavfi",

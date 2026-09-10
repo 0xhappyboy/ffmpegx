@@ -1,5 +1,5 @@
 use super::core::Ffmpeg;
-use crate::cmd_ffprobe;
+use crate::hidden_cmd;
 impl Ffmpeg {
     /// Get keyframe timestamps from a video file
     ///
@@ -17,7 +17,7 @@ impl Ffmpeg {
         if !std::path::Path::new(file_path).exists() {
             return Err(format!("File not found: {}", file_path));
         }
-        let output = cmd_ffprobe()
+        let output = hidden_cmd(&self.probe_path)
             .args([
                 "-v",
                 "error",
@@ -52,7 +52,6 @@ impl Ffmpeg {
         if timestamps.is_empty() {
             return self.get_keyframe_timestamps_from_packets(file_path);
         }
-        if timestamps.len() > 0 {}
         Ok(timestamps)
     }
     /// Get keyframe timestamps from packet analysis
@@ -68,7 +67,7 @@ impl Ffmpeg {
     /// * `Ok(Vec<f64>)` - List of keyframe timestamps in seconds
     /// * `Err(String)` - Error message if extraction fails
     fn get_keyframe_timestamps_from_packets(&self, file_path: &str) -> Result<Vec<f64>, String> {
-        let output = cmd_ffprobe()
+        let output = hidden_cmd(&self.probe_path)
             .args([
                 "-v",
                 "error",
@@ -96,7 +95,6 @@ impl Ffmpeg {
                 }
             }
         }
-        if timestamps.len() > 0 {}
         Ok(timestamps)
     }
 }
