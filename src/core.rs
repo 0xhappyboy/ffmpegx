@@ -89,6 +89,12 @@ fn is_ffmpeg_available(cmd: &str) -> bool {
 /// 4. Contents/Resources/bin/
 fn get_bin_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
+    // Linux `.deb` private install directory: probe first so the bundled
+    // binaries take precedence over any system ffmpeg on PATH.
+    #[cfg(target_os = "linux")]
+    {
+        paths.push(PathBuf::from("/usr/lib/hippox/bin"));
+    }
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             // 1. Contents/MacOS/
