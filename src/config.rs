@@ -2,7 +2,7 @@ use crate::{OutputFormatTypeEnum, PreviewQuality};
 /// Default decode frame quality for frame extraction
 pub const DEFAULT_DECODE_FRAME_QUALITY: PreviewQuality = PreviewQuality::Excellent;
 /// Output frame product format
-pub const OUTPUT_FRAME_PROFUCT_FORMAT: OutputFormatTypeEnum = OutputFormatTypeEnum::Jpg;
+pub const OUTPUT_FRAME_PROFUCT_FORMAT: OutputFormatTypeEnum = OutputFormatTypeEnum::Png;
 /// default fps
 pub const DEFAULT_FPS: f64 = 30.0;
 /// Preview Canvas Width
