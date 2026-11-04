@@ -1,12 +1,8 @@
+use crate::low_priority_cmd;
 use serde::{Deserialize, Serialize};
 use std::process::{Child, ChildStdin, ChildStdout};
 use uuid::Uuid;
-
-use crate::hidden_cmd;
 /// Persistent ffmpeg process for fast frame extraction
-///
-/// Holds the child process handles and state for a persistent ffmpeg
-/// process that can extract frames without restarting for each request.
 pub struct PersistentProcess {
     /// Child process handle
     pub child: Child,
@@ -18,9 +14,6 @@ pub struct PersistentProcess {
     pub video_path: String,
 }
 /// Thumbnail generation options
-///
-/// Controls the parameters for extracting a single frame as a thumbnail
-/// image, including timestamp, dimensions, and output path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThumbnailOptions {
     /// Timestamp in seconds to extract the frame from
@@ -33,9 +26,6 @@ pub struct ThumbnailOptions {
     pub output_path: Option<String>,
 }
 /// Frame extraction options for batch processing
-///
-/// Controls the parameters for extracting multiple frames from a video,
-/// including frame rate, time range, dimensions, and output format.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrameExtractOptions {
     /// Output directory for extracted frames
@@ -58,9 +48,6 @@ pub struct FrameExtractOptions {
     pub quality: Option<u32>,
 }
 /// Preview quality levels for frame extraction
-///
-/// Controls the trade-off between image quality and file size
-/// when extracting preview frames.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PreviewQuality {
     /// Best quality, largest file size (q=2)
@@ -77,9 +64,6 @@ pub enum PreviewQuality {
 impl PreviewQuality {
     /// Convert quality level to ffmpeg q:v value
     ///
-    /// Returns the numeric q value used by ffmpeg's JPEG encoder,
-    /// where lower numbers mean better quality and larger file sizes.
-    ///
     /// # Returns
     /// * `u32` - The q value (1-31)
     pub fn as_q_value(&self) -> u32 {
@@ -93,9 +77,6 @@ impl PreviewQuality {
     }
 }
 /// Basic metadata structure for video files
-///
-/// Contains essential video information including dimensions,
-/// duration, frame rate, codec, and bitrate.
 #[derive(Debug, Clone)]
 pub struct BasicMetadata {
     /// Duration in seconds
@@ -112,9 +93,6 @@ pub struct BasicMetadata {
     pub bitrate: u64,
 }
 /// Image metadata structure
-///
-/// Contains information about image files including dimensions,
-/// frame rate, and duration (useful for animated images like GIFs).
 #[derive(Debug, Clone)]
 pub struct ImageMetadata {
     /// Image width in pixels
@@ -150,9 +128,6 @@ pub struct AudioMetadata {
 }
 impl AudioMetadata {
     /// Parse audio metadata from ffprobe JSON output
-    ///
-    /// Extracts all available audio metadata from the ffprobe JSON
-    /// output, including core information, quality parameters, and ID3 tags.
     ///
     /// # Arguments
     /// * `json` - The parsed ffprobe JSON output
@@ -320,10 +295,6 @@ pub struct VideoMetadata {
 }
 impl VideoMetadata {
     /// Parse video metadata from ffprobe JSON output
-    ///
-    /// Extracts all available video metadata from the ffprobe JSON
-    /// output, including core information, video properties, audio
-    /// track information, and file metadata.
     ///
     /// # Arguments
     /// * `json` - The parsed ffprobe JSON output
@@ -557,9 +528,7 @@ impl HwAccel {
     }
     /// Get all hardware acceleration backends supported by this FFmpeg binary
     pub fn get_supported_backends(ffmpeg_path: &str) -> Vec<HwAccel> {
-        let output = hidden_cmd(ffmpeg_path)
-            .arg("-hwaccels")
-            .output();
+        let output = low_priority_cmd(ffmpeg_path).arg("-hwaccels").output();
         let output_str = match output {
             Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
             _ => return Vec::new(),

@@ -1,10 +1,6 @@
-use crate::{DEFAULT_AUDIO_RATE, find_ffmpeg_path, hidden_cmd};
+use crate::{DEFAULT_AUDIO_RATE, find_ffmpeg_path, low_priority_cmd};
 use std::{fs, path::Path};
 /// Extract PCM audio data from an audio file at specified time range
-///
-/// This function uses ffmpeg to extract PCM audio data from the given audio file
-/// within the specified time range. The audio is decoded to 32-bit float PCM format
-/// at 44.1kHz with 2 channels, suitable for waveform rendering and audio analysis.
 ///
 /// # Arguments
 /// * `audio_path` - Path to the source audio file
@@ -26,7 +22,7 @@ pub fn extract_audio_pcm_data_from_path(
         return Ok(Vec::new());
     }
     let ffmpeg_bin = find_ffmpeg_path().ok_or("ffmpeg not found")?;
-    let output = hidden_cmd(&ffmpeg_bin)
+    let output = low_priority_cmd(&ffmpeg_bin)
         .args([
             "-ss",
             &start_time.to_string(),
@@ -61,10 +57,6 @@ pub fn extract_audio_pcm_data_from_path(
 }
 /// Decode entire audio file to PCM and save to cache
 ///
-/// This function decodes the entire audio file to 32-bit float PCM format
-/// and saves it to the specified cache path. The output is suitable for
-/// fast subsequent reads without re-decoding.
-///
 /// # Arguments
 /// * `source_path` - Path to the source audio file
 /// * `output_path` - Path where the PCM cache file will be written
@@ -82,7 +74,7 @@ pub fn decode_audio_to_pcm(source_path: &Path, output_path: &Path) -> Result<(),
         }
     }
     let ffmpeg_bin = find_ffmpeg_path().ok_or("ffmpeg not found")?;
-    let output = hidden_cmd(&ffmpeg_bin)
+    let output = low_priority_cmd(&ffmpeg_bin)
         .args([
             "-i",
             source_path.to_str().unwrap(),
@@ -108,9 +100,6 @@ pub fn decode_audio_to_pcm(source_path: &Path, output_path: &Path) -> Result<(),
 }
 /// Read PCM data from cached file
 ///
-/// Reads previously cached PCM data from the filesystem and converts it
-/// to a vector of 32-bit float samples.
-///
 /// # Arguments
 /// * `pcm_path` - Path to the PCM cache file
 ///
@@ -129,9 +118,6 @@ pub fn read_pcm_from_cache(pcm_path: &Path) -> Result<Vec<f32>, String> {
     Ok(samples)
 }
 /// Extract PCM data from cached file with time range
-///
-/// Reads a subset of PCM data from the cache file within the specified
-/// time range. The sample rate and channel count are assumed to be 44.1kHz stereo.
 ///
 /// # Arguments
 /// * `pcm_path` - Path to the PCM cache file
@@ -162,10 +148,6 @@ pub fn extract_pcm_from_cache(
     Ok(samples[start..end].to_vec())
 }
 /// Mix multiple audio sample vectors into a single mixed audio buffer with peak normalization
-///
-/// This function mixes multiple audio tracks by summing samples and then
-/// applying peak normalization to prevent clipping. All input vectors must
-/// have the same sample rate and channel count.
 ///
 /// # Arguments
 /// * `samples_list` - Vector of sample vectors to mix

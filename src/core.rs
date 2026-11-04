@@ -1,12 +1,7 @@
 //! FFmpeg wrapper for video/audio processing operations
-//!
-//! This module provides a high-level interface to ffmpeg and ffprobe commands,
-//! supporting video metadata extraction, frame extraction, thumbnail generation,
-//! and independent process management. Each Ffmpeg instance owns its own
-//! process resources, ensuring no state conflicts between parallel operations.
 use crate::{
     AudioMetadata, FrameExtractOptions, ImageMetadata, PersistentProcess, ThumbnailOptions,
-    VideoMetadata, hidden_cmd,
+    VideoMetadata, low_priority_cmd,
 };
 use std::{
     env, fs,
@@ -67,14 +62,17 @@ pub fn find_ffmpeg_path() -> Option<String> {
 }
 /// Check if ffmpeg at given path is executable and working
 fn is_ffmpeg_executable(path: &Path) -> bool {
-    if let Ok(output) = hidden_cmd(path.to_str().unwrap()).arg("-version").output() {
+    if let Ok(output) = low_priority_cmd(path.to_str().unwrap())
+        .arg("-version")
+        .output()
+    {
         return output.status.success();
     }
     false
 }
 /// Check if ffmpeg is available via command name
 fn is_ffmpeg_available(cmd: &str) -> bool {
-    hidden_cmd(cmd)
+    low_priority_cmd(cmd)
         .arg("-version")
         .output()
         .map(|o| o.status.success())
@@ -101,7 +99,6 @@ fn get_bin_paths() -> Vec<PathBuf> {
             paths.push(exe_dir.to_path_buf());
             // 2. Contents/MacOS/bin/
             paths.push(exe_dir.join("bin"));
-
             if let Some(contents_dir) = exe_dir.parent() {
                 // 3. Contents/Resources/
                 paths.push(contents_dir.join("Resources"));
@@ -120,10 +117,6 @@ fn get_bin_paths() -> Vec<PathBuf> {
     paths
 }
 /// FFmpeg wrapper for video/audio processing operations
-///
-/// This struct provides a high-level interface to ffmpeg and ffprobe commands.
-/// Each instance is independent and owns its own resources, making it safe
-/// for parallel use in multi-threaded environments like sharded decoding.
 ///
 /// # Important
 /// - Each instance manages its own persistent process (if any)
@@ -214,14 +207,6 @@ impl Ffmpeg {
     }
     /// Initialize persistent ffmpeg process for fast frame extraction
     ///
-    /// Starts a persistent ffmpeg process in image2pipe mode, which allows
-    /// fast frame extraction without restarting ffmpeg for each frame.
-    ///
-    /// # Important
-    /// - This process is owned by this instance only
-    /// - Not shared with other instances
-    /// - Will be automatically cleaned up when the instance is dropped
-    ///
     /// # Arguments
     /// * `video_path` - Path to the video file to process
     ///
@@ -240,7 +225,7 @@ impl Ffmpeg {
             *guard = None;
         }
         // Start new persistent ffmpeg process
-        let mut child = hidden_cmd(&self.bin_path)
+        let mut child = low_priority_cmd(&self.bin_path)
             .args([
                 "-i",
                 video_path,
@@ -268,9 +253,6 @@ impl Ffmpeg {
         Ok(())
     }
     /// Extract a frame from the persistent ffmpeg process at the given time
-    ///
-    /// Uses the persistent ffmpeg process to extract a frame at the specified
-    /// timestamp. This is faster than starting a new ffmpeg process for each frame.
     ///
     /// # Arguments
     /// * `time` - Timestamp in seconds to extract the frame from
@@ -319,10 +301,6 @@ impl Ffmpeg {
         Ok(buffer)
     }
     /// Clean up the persistent ffmpeg process
-    ///
-    /// Terminates the persistent ffmpeg process if it is currently running.
-    /// This is automatically called when the instance is dropped, but can be
-    /// called manually to release resources earlier.
     pub fn cleanup_persistent(&self) {
         let mut guard = self.persistent.lock().unwrap();
         if let Some(mut proc) = guard.take() {
@@ -335,7 +313,7 @@ impl Ffmpeg {
     /// * `true` if ffmpeg is available and executable
     /// * `false` otherwise
     pub fn is_available(&self) -> bool {
-        hidden_cmd(&self.bin_path)
+        low_priority_cmd(&self.bin_path)
             .arg("-version")
             .output()
             .map(|o| o.status.success())
@@ -347,7 +325,10 @@ impl Ffmpeg {
     /// * `Some(String)` - The ffmpeg version string
     /// * `None` - If ffmpeg is not available or version cannot be determined
     pub fn get_version(&self) -> Option<String> {
-        let output = hidden_cmd(&self.bin_path).arg("-version").output().ok()?;
+        let output = low_priority_cmd(&self.bin_path)
+            .arg("-version")
+            .output()
+            .ok()?;
         if !output.status.success() {
             return None;
         }
@@ -355,9 +336,6 @@ impl Ffmpeg {
         version.lines().next().map(|s| s.to_string())
     }
     /// Get complete video metadata from file path
-    ///
-    /// Uses ffprobe to extract comprehensive metadata including video properties,
-    /// stream information, and file format details.
     ///
     /// # Arguments
     /// * `path` - Path to the video file
@@ -370,7 +348,7 @@ impl Ffmpeg {
         if !path_obj.exists() {
             return Err(format!("File not found: {}", path_obj.display()));
         }
-        let output = hidden_cmd(&self.probe_path)
+        let output = low_priority_cmd(&self.probe_path)
             .args([
                 "-v",
                 "quiet",
@@ -402,9 +380,6 @@ impl Ffmpeg {
     }
     /// Get audio metadata from file path
     ///
-    /// Extracts comprehensive audio metadata including core information,
-    /// quality parameters, and ID3 tags using ffprobe.
-    ///
     /// # Arguments
     /// * `path` - Path to the audio file
     ///
@@ -412,7 +387,7 @@ impl Ffmpeg {
     /// * `Ok(AudioMetadata)` - Complete audio metadata
     /// * `Err(String)` - Error message if metadata extraction fails
     pub fn get_audio_metadata(&self, path: &str) -> Result<AudioMetadata, String> {
-        let output = hidden_cmd(&self.probe_path)
+        let output = low_priority_cmd(&self.probe_path)
             .args([
                 "-v",
                 "quiet",
@@ -433,9 +408,6 @@ impl Ffmpeg {
         AudioMetadata::from_json(&json, path)
     }
     /// Get image metadata from file path
-    ///
-    /// Extracts image metadata including dimensions, frame rate,
-    /// and duration. GIF files get special handling for duration and fps.
     ///
     /// # Arguments
     /// * `path` - Path to the image file
@@ -459,9 +431,6 @@ impl Ffmpeg {
     }
     /// Extract a single frame from video at given time as JPEG bytes
     ///
-    /// This function starts a new ffmpeg process for each extraction.
-    /// For repeated extractions, consider using the persistent process.
-    ///
     /// # Arguments
     /// * `video_path` - Path to the video file
     /// * `time` - Timestamp in seconds to extract the frame from
@@ -470,7 +439,7 @@ impl Ffmpeg {
     /// * `Ok(Vec<u8>)` - JPEG image data
     /// * `Err(String)` - Error message if extraction fails
     pub fn extract_frame(&self, video_path: &str, time: f64) -> Result<Vec<u8>, String> {
-        let output = hidden_cmd(&self.bin_path)
+        let output = low_priority_cmd(&self.bin_path)
             .args([
                 "-ss",
                 &time.to_string(),
@@ -497,9 +466,6 @@ impl Ffmpeg {
     }
     /// Get the number of keyframes in a video file
     ///
-    /// Uses multiple methods to count keyframes, falling back to alternative
-    /// approaches if the primary method fails.
-    ///
     /// # Arguments
     /// * `path` - Path to the video file
     ///
@@ -511,7 +477,7 @@ impl Ffmpeg {
             return Err(format!("File not found: {}", path));
         }
         // Method 1: Count keyframes from packet flags
-        let output = hidden_cmd(&self.probe_path)
+        let output = low_priority_cmd(&self.probe_path)
             .args([
                 "-v",
                 "error",
@@ -533,7 +499,7 @@ impl Ffmpeg {
         let count = stdout.lines().filter(|line| line.contains('K')).count();
         // Method 2: Fallback to frame analysis
         if count == 0 {
-            let output2 = hidden_cmd(&self.probe_path)
+            let output2 = low_priority_cmd(&self.probe_path)
                 .args([
                     "-v",
                     "error",
@@ -555,7 +521,7 @@ impl Ffmpeg {
         }
         // Method 3: Use ffmpeg filter
         if count == 0 {
-            let output3 = hidden_cmd(&self.bin_path)
+            let output3 = low_priority_cmd(&self.bin_path)
                 .args([
                     "-i",
                     path,
@@ -601,9 +567,6 @@ impl Ffmpeg {
     }
     /// Create an empty video with black screen
     ///
-    /// Generates a synthetic video file with a black screen using the lavfi filter.
-    /// Useful for testing and placeholder videos.
-    ///
     /// # Arguments
     /// * `output_path` - Path where the output video will be saved
     /// * `duration` - Duration in seconds
@@ -648,7 +611,7 @@ impl Ffmpeg {
             "-y".to_string(),
             output_path.to_string(),
         ];
-        let output = hidden_cmd(&self.bin_path)
+        let output = low_priority_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to create empty video: {}", e))?;
@@ -682,9 +645,6 @@ impl Ffmpeg {
         self.get_video_metadata(path).is_ok()
     }
     /// Generate a thumbnail from video at specified time
-    ///
-    /// Extracts a single frame from the video at the specified time and saves
-    /// it as an image file. The output format is determined by the output_path extension.
     ///
     /// # Arguments
     /// * `input_path` - Path to the input video file
@@ -729,7 +689,7 @@ impl Ffmpeg {
         }
         args.push("-y".to_string());
         args.push(output_path.to_string_lossy().to_string());
-        let output = hidden_cmd(&self.bin_path)
+        let output = low_priority_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to generate thumbnail: {}", e))?;
@@ -740,9 +700,6 @@ impl Ffmpeg {
         Ok(output_path.to_string_lossy().to_string())
     }
     /// Extract the first frame of a video
-    ///
-    /// Saves the first frame of the video as an image file. Useful for
-    /// generating preview thumbnails or cover images.
     ///
     /// # Arguments
     /// * `input_path` - Path to the input video file
@@ -792,7 +749,7 @@ impl Ffmpeg {
         }
         args.push("-y".to_string());
         args.push(output_path.to_string());
-        let output = hidden_cmd(&self.bin_path)
+        let output = low_priority_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to extract first frame: {}", e))?;
@@ -803,9 +760,6 @@ impl Ffmpeg {
         Ok(())
     }
     /// Extract the last frame of a video
-    ///
-    /// Saves the last frame of the video as an image file. Useful for
-    /// end-of-video previews or thumbnails.
     ///
     /// # Arguments
     /// * `input_path` - Path to the input video file
@@ -855,7 +809,7 @@ impl Ffmpeg {
         }
         args.push("-y".to_string());
         args.push(output_path.to_string());
-        let output = hidden_cmd(&self.bin_path)
+        let output = low_priority_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to extract last frame: {}", e))?;
@@ -866,9 +820,6 @@ impl Ffmpeg {
         Ok(())
     }
     /// Extract frames from video with custom options
-    ///
-    /// Extracts multiple frames from a video file using the specified options.
-    /// Supports custom frame rate, dimensions, start time, and duration.
     ///
     /// # Arguments
     /// * `input_path` - Path to the input video file
@@ -945,7 +896,7 @@ impl Ffmpeg {
         };
         args.push("-y".to_string());
         args.push(final_pattern.clone());
-        let output = hidden_cmd(&self.bin_path)
+        let output = low_priority_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to extract frames: {}", e))?;
@@ -986,7 +937,7 @@ impl Ffmpeg {
         if !Path::new(input_path).exists() {
             return Err(format!("Input file not found: {}", input_path));
         }
-        let output = hidden_cmd(&self.probe_path)
+        let output = low_priority_cmd(&self.probe_path)
             .args([
                 "-v",
                 "error",
@@ -1013,9 +964,6 @@ impl Ffmpeg {
     }
     /// Reset the persistent ffmpeg process
     ///
-    /// Kills the current persistent process and starts a new one with the
-    /// specified video file.
-    ///
     /// # Arguments
     /// * `video_path` - Path to the video file
     ///
@@ -1034,9 +982,6 @@ impl Ffmpeg {
         Ok(())
     }
     /// Extract a single frame at the specified timestamp from a video file
-    ///
-    /// Saves a single frame from the video at the given timestamp to the
-    /// specified output path with optional scaling and quality control.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source video file
@@ -1095,7 +1040,7 @@ impl Ffmpeg {
         args.push(q.to_string());
         args.push("-y".to_string());
         args.push(output_path.to_string_lossy().to_string());
-        let output = hidden_cmd(&self.bin_path)
+        let output = low_priority_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg failed: {}", e))?;
@@ -1107,10 +1052,6 @@ impl Ffmpeg {
     }
 }
 /// Automatic cleanup of persistent ffmpeg process when Ffmpeg instance is dropped
-///
-/// This ensures that no orphaned ffmpeg processes remain, even if the instance
-/// is dropped abruptly. The cleanup is graceful (sends 'q' command) but also
-/// forcefully kills the process if it doesn't exit within 1 second.
 impl Drop for Ffmpeg {
     fn drop(&mut self) {
         let mut guard = self.persistent.lock().unwrap();

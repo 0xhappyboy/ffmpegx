@@ -1,12 +1,8 @@
 //! # Video Decoding Module
-//!
-//! This module provides video decoding capabilities including frame extraction,
-//! GIF decoding, image decoding, and text rendering. It supports sharded
-//! (parallel chunk-based) decoding for large video files.
 use crate::{
     DEFAULT_AUDIO_RATE, DEFAULT_DECODE_FRAME_QUALITY, DEFAULT_FPS, DEFAULT_FRAME_HEIGHT,
     DEFAULT_FRAME_WIDTH, Ffmpeg, FileUtils, GIF_MAX_FRAMES, HwAccel, OUTPUT_FRAME_PROFUCT_FORMAT,
-    PixelFormat, YuvFrame, cmd_ffmpeg, hidden_cmd,
+    PixelFormat, YuvFrame, cmd_ffmpeg, low_priority_cmd,
 };
 use std::{
     path::{Path, PathBuf},
@@ -14,10 +10,6 @@ use std::{
     time::Duration,
 };
 /// Video decoding options for frame extraction
-///
-/// Controls the parameters for decoding video files into frame sequences,
-/// including frame rate, output dimensions, quality, audio extraction,
-/// and optional start time for chunk-based decoding.
 pub struct DecodeVideoOptions {
     /// Target frames per second for the output sequence
     pub fps: f64,
@@ -126,9 +118,6 @@ impl Default for DecodeGifOptions {
 impl Ffmpeg {
     /// Decode video with hardware acceleration
     ///
-    /// Attempts to decode video using hardware acceleration.
-    /// If hardware acceleration fails, falls back to software decoding.
-    ///
     /// # Arguments
     /// * `source_path` - Path to the source video file
     /// * `frames_dir` - Directory where frame images will be saved
@@ -161,9 +150,6 @@ impl Ffmpeg {
         self.decode_video_software(source_path, frames_dir, audio_path, options)
     }
     /// Decode video with hardware acceleration
-    ///
-    /// Decodes a video file using hardware acceleration.
-    /// Frames are saved with sequential numbering in the specified output directory.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source video file
@@ -245,7 +231,7 @@ impl Ffmpeg {
                 args.push(quality_clone.clone());
                 // Output pattern
                 args.push(format!("{}/%06d.{}", frames_dir_clone, output_format));
-                let output = hidden_cmd(&bin_path).args(&args).output();
+                let output = low_priority_cmd(&bin_path).args(&args).output();
                 let result = match output {
                     Ok(output) if output.status.success() => Ok(()),
                     Ok(output) => {
@@ -270,7 +256,7 @@ impl Ffmpeg {
                 let mut attempt = 0;
                 loop {
                     attempt += 1;
-                    let output = hidden_cmd(&bin_path_audio)
+                    let output = low_priority_cmd(&bin_path_audio)
                         .args([
                             "-i",
                             &source_path_clone2,
@@ -314,9 +300,6 @@ impl Ffmpeg {
         Ok(())
     }
     /// Decode video with software decoding (fallback)
-    ///
-    /// This is the original software decoding implementation.
-    /// Frames are saved with sequential numbering in the specified output directory.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source video file
@@ -391,7 +374,7 @@ impl Ffmpeg {
                 args.push(quality_clone.clone());
                 // Output pattern
                 args.push(format!("{}/%06d.{}", frames_dir_clone, output_format));
-                let output = hidden_cmd(&bin_path).args(&args).output();
+                let output = low_priority_cmd(&bin_path).args(&args).output();
                 let result = match output {
                     Ok(output) if output.status.success() => Ok(()),
                     Ok(output) => {
@@ -416,7 +399,7 @@ impl Ffmpeg {
                 let mut attempt = 0;
                 loop {
                     attempt += 1;
-                    let output = hidden_cmd(&bin_path_audio)
+                    let output = low_priority_cmd(&bin_path_audio)
                         .args([
                             "-i",
                             &source_path_clone2,
@@ -460,10 +443,6 @@ impl Ffmpeg {
         Ok(())
     }
     /// Decode GIF: generate frame sequence
-    ///
-    /// Decodes a GIF file into a sequence of PNG frames to preserve transparency
-    /// and color space. Handles frame rate conversion and limits the total
-    /// number of frames extracted.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source GIF file
@@ -567,7 +546,7 @@ impl Ffmpeg {
         args.push("-compression_level".to_string());
         args.push("6".to_string());
         args.push(format!("{}/%06d.{}", frames_dir_str, output_format));
-        let output = hidden_cmd(&self.bin_path)
+        let output = low_priority_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg failed: {}", e))?;
@@ -582,9 +561,6 @@ impl Ffmpeg {
         Ok(())
     }
     /// Decode GIF with software decoding (fallback)
-    ///
-    /// This is the software decoding implementation for GIF.
-    /// Uses PNG format to preserve transparency and color space.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source GIF file
@@ -631,7 +607,7 @@ impl Ffmpeg {
         let frame_count = if frame_count == 0 { 1 } else { frame_count };
         // GIF uses PNG format to preserve transparency and color space
         let output_format = "png";
-        let output = hidden_cmd(&self.bin_path)
+        let output = low_priority_cmd(&self.bin_path)
             .args([
                 "-i",
                 &source_path_str,
@@ -659,10 +635,6 @@ impl Ffmpeg {
         Ok(())
     }
     /// Decode image: generate frame sequence (single frame or multiple frames)
-    ///
-    /// Decodes an image file into one or more frames. For static images,
-    /// the frame is duplicated to fill the desired duration.
-    /// Uses PNG format to preserve transparency and color space.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source image file
@@ -694,9 +666,6 @@ impl Ffmpeg {
         self.decode_image_software(source_path, frames_dir, options)
     }
     /// Decode image with hardware acceleration
-    ///
-    /// Decodes an image file using hardware acceleration.
-    /// Uses PNG format to preserve transparency and color space.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source image file
@@ -767,7 +736,7 @@ impl Ffmpeg {
         args.push("-compression_level".to_string());
         args.push("6".to_string());
         args.push(format!("{}/%06d.{}", frames_dir_str, output_format));
-        let output = hidden_cmd(&self.bin_path).args(&args).output();
+        let output = low_priority_cmd(&self.bin_path).args(&args).output();
         let mut success = false;
         if let Ok(output) = output {
             if output.status.success() {
@@ -791,9 +760,6 @@ impl Ffmpeg {
         Ok(())
     }
     /// Decode image with software decoding (fallback)
-    ///
-    /// This is the software decoding implementation.
-    /// Uses PNG format to preserve transparency and color space.
     ///
     /// # Arguments
     /// * `source_path` - Path to the source image file
@@ -842,7 +808,7 @@ impl Ffmpeg {
         // Images use PNG format to preserve transparency and color space
         let output_format = "png";
         // Try FFmpeg first with rgba pixel format
-        let output = hidden_cmd(&self.bin_path)
+        let output = low_priority_cmd(&self.bin_path)
             .args([
                 "-i",
                 &source_path_str,
@@ -923,8 +889,6 @@ impl Ffmpeg {
     }
     /// Decode text: generate a single preview frame
     ///
-    /// Renders text content as a single JPEG frame for preview purposes.
-    ///
     /// # Arguments
     /// * `source_path` - Path to the text file
     /// * `output_path` - Path where the preview frame will be saved
@@ -951,9 +915,6 @@ impl Ffmpeg {
     }
     /// Count the number of frames in a directory
     ///
-    /// Counts PNG and JPEG files in the given directory. Used to verify
-    /// frame extraction results.
-    ///
     /// # Arguments
     /// * `dir` - Directory to scan for frames
     ///
@@ -979,9 +940,6 @@ impl Ffmpeg {
         }
     }
     /// Get frame sequence information (frame count, file paths, etc.)
-    ///
-    /// Scans a directory and returns the count and sorted list of
-    /// all frame files (PNG and JPEG) in the directory.
     ///
     /// # Arguments
     /// * `frames_dir` - Directory containing frame files
@@ -1056,7 +1014,7 @@ impl Ffmpeg {
         args.push("-f".to_string());
         args.push("rawvideo".to_string());
         args.push("-".to_string());
-        let output = hidden_cmd(&self.bin_path)
+        let output = low_priority_cmd(&self.bin_path)
             .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg decode failed: {}", e))?;
@@ -1080,7 +1038,7 @@ impl Ffmpeg {
                     "rawvideo".to_string(),
                     "-".to_string(),
                 ];
-                let fallback_output = hidden_cmd(&self.bin_path)
+                let fallback_output = low_priority_cmd(&self.bin_path)
                     .args(&fallback_args)
                     .output()
                     .map_err(|e| format!("FFmpeg software decode failed: {}", e))?;
@@ -1155,7 +1113,7 @@ impl Ffmpeg {
     }
     /// Get video dimensions using ffprobe
     fn get_video_dimensions(&self, source_path: &str) -> Result<(u32, u32), String> {
-        let output = hidden_cmd(&self.probe_path)
+        let output = low_priority_cmd(&self.probe_path)
             .args([
                 "-v",
                 "error",

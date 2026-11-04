@@ -1,13 +1,10 @@
 use crate::{
     AudioMetadata, BasicMetadata, DEFAULT_AUDIO_RATE, Ffmpeg, ImageMetadata, find_ffmpeg_path,
-    hidden_cmd,
+    low_priority_cmd,
 };
 use serde_json::Value;
 use std::{fs, path::Path};
 /// Get video metadata as JSON from file path
-///
-/// Convenience wrapper around Ffmpeg::get_video_info_json that returns
-/// video metadata as a JSON value suitable for API responses.
 ///
 /// # Arguments
 /// * `ffmpeg` - Reference to the Ffmpeg instance
@@ -21,8 +18,6 @@ pub fn get_video_metadata_json(ffmpeg: &Ffmpeg, path: &str) -> Result<Value, Str
 }
 /// Get audio metadata from file path
 ///
-/// Convenience wrapper around Ffmpeg::get_audio_metadata.
-///
 /// # Arguments
 /// * `ffmpeg` - Reference to the Ffmpeg instance
 /// * `path` - Path to the audio file
@@ -34,9 +29,6 @@ pub fn get_audio_metadata(ffmpeg: &Ffmpeg, path: &str) -> Result<AudioMetadata, 
     ffmpeg.get_audio_metadata(path)
 }
 /// Get basic metadata from file path
-///
-/// Extracts basic video metadata including duration, dimensions,
-/// frame rate, codec, and bitrate.
 ///
 /// # Arguments
 /// * `ffmpeg` - Reference to the Ffmpeg instance
@@ -58,8 +50,6 @@ pub fn get_basic_metadata(ffmpeg: &Ffmpeg, path: &str) -> Result<BasicMetadata, 
 }
 /// Get image metadata from file path
 ///
-/// Convenience wrapper around Ffmpeg::get_image_metadata.
-///
 /// # Arguments
 /// * `ffmpeg` - Reference to the Ffmpeg instance
 /// * `path` - Path to the image file
@@ -77,9 +67,6 @@ pub fn get_image_metadata(
 }
 /// Extract frame from video at given time
 ///
-/// Convenience wrapper around Ffmpeg::extract_frame that returns
-/// JPEG image data for a single frame at the specified timestamp.
-///
 /// # Arguments
 /// * `ffmpeg` - Reference to the Ffmpeg instance
 /// * `source_path` - Path to the video file
@@ -96,10 +83,6 @@ pub fn extract_frame_data(
     ffmpeg.extract_frame(source_path, time)
 }
 /// Generate waveform image from audio file
-///
-/// Creates a waveform visualization image from an audio file using
-/// ffmpeg's showwavespic filter. WAV files receive special handling
-/// with explicit sample rate specification.
 ///
 /// # Arguments
 /// * `_ffmpeg` - Reference to the Ffmpeg instance (unused)
@@ -131,7 +114,7 @@ pub fn generate_waveform_image(
     }
     let ffmpeg_bin = find_ffmpeg_path().ok_or("ffmpeg not found")?;
     let probe_bin = Ffmpeg::with_bin_path(&ffmpeg_bin).probe_path.clone();
-    let probe_output = hidden_cmd(&probe_bin)
+    let probe_output = low_priority_cmd(&probe_bin)
         .args([
             "-v",
             "error",
@@ -160,7 +143,7 @@ pub fn generate_waveform_image(
     } else {
         format!("showwavespic=s={}x{}:colors={}", width, height, color)
     };
-    let output = hidden_cmd(&ffmpeg_bin)
+    let output = low_priority_cmd(&ffmpeg_bin)
         .args([
             "-i",
             source_path,
@@ -186,9 +169,6 @@ pub fn generate_waveform_image(
     Ok(())
 }
 /// Generate text thumbnail image
-///
-/// Creates a visual representation of text content by rendering it
-/// onto a colored background using ffmpeg's drawtext filter.
 ///
 /// # Arguments
 /// * `_ffmpeg` - Reference to the Ffmpeg instance (unused)
@@ -233,7 +213,7 @@ pub fn generate_text_thumbnail(
     };
     let font = font_path.unwrap_or(default_font);
     let ffmpeg_bin = find_ffmpeg_path().ok_or("ffmpeg not found")?;
-    let output = hidden_cmd(&ffmpeg_bin)
+    let output = low_priority_cmd(&ffmpeg_bin)
         .args([
             "-f",
             "lavfi",
@@ -262,9 +242,6 @@ pub fn generate_text_thumbnail(
 }
 /// Read cached thumbnail from file system
 ///
-/// Reads a previously cached thumbnail image from disk and returns
-/// it as a base64-encoded data URL.
-///
 /// # Arguments
 /// * `cache_path` - Path to the cached thumbnail file
 ///
@@ -285,9 +262,6 @@ pub fn read_cached_thumbnail(cache_path: &Path) -> Option<String> {
 }
 /// Save thumbnail data to cache
 ///
-/// Writes thumbnail image data to the filesystem cache, creating
-/// parent directories if they do not exist.
-///
 /// # Arguments
 /// * `cache_path` - Path where the thumbnail will be saved
 /// * `data` - Thumbnail image data (JPEG bytes)
@@ -306,9 +280,6 @@ pub fn save_thumbnail_to_cache(cache_path: &Path, data: &[u8]) -> Result<(), Str
 }
 /// Detect if file is GIF based on extension
 ///
-/// Checks whether a file name ends with the .gif extension
-/// (case-insensitive).
-///
 /// # Arguments
 /// * `file_name` - File name or path to check
 ///
@@ -319,9 +290,6 @@ pub fn is_gif_file(file_name: &str) -> bool {
     file_name.to_lowercase().ends_with(".gif")
 }
 /// Determine codec from file extension
-///
-/// Maps common image file extensions to their corresponding
-/// codec names. Returns "image" for unknown extensions.
 ///
 /// # Arguments
 /// * `file_name` - File name or path to analyze

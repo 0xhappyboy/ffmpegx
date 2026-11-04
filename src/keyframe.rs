@@ -1,11 +1,7 @@
 use super::core::Ffmpeg;
-use crate::hidden_cmd;
+use crate::low_priority_cmd;
 impl Ffmpeg {
     /// Get keyframe timestamps from a video file
-    ///
-    /// Extracts the timestamps of all keyframes (I-frames) from the video
-    /// using ffprobe. Falls back to packet-based analysis if frame-based
-    /// analysis fails.
     ///
     /// # Arguments
     /// * `file_path` - Path to the video file
@@ -17,7 +13,7 @@ impl Ffmpeg {
         if !std::path::Path::new(file_path).exists() {
             return Err(format!("File not found: {}", file_path));
         }
-        let output = hidden_cmd(&self.probe_path)
+        let output = low_priority_cmd(&self.probe_path)
             .args([
                 "-v",
                 "error",
@@ -56,10 +52,6 @@ impl Ffmpeg {
     }
     /// Get keyframe timestamps from packet analysis
     ///
-    /// Alternative method to extract keyframe timestamps by analyzing
-    /// packet flags instead of frame data. Used as fallback when
-    /// the primary frame-based method fails.
-    ///
     /// # Arguments
     /// * `file_path` - Path to the video file
     ///
@@ -67,7 +59,7 @@ impl Ffmpeg {
     /// * `Ok(Vec<f64>)` - List of keyframe timestamps in seconds
     /// * `Err(String)` - Error message if extraction fails
     fn get_keyframe_timestamps_from_packets(&self, file_path: &str) -> Result<Vec<f64>, String> {
-        let output = hidden_cmd(&self.probe_path)
+        let output = low_priority_cmd(&self.probe_path)
             .args([
                 "-v",
                 "error",

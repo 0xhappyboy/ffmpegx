@@ -1,8 +1,5 @@
 //! Video encoding module for ffmpegx
-//!
-//! This module provides video encoding capabilities for exporting
-//! frame sequences to video files or animated GIFs.
-use crate::{Ffmpeg, FileUtils, HwAccel, hidden_cmd};
+use crate::{Ffmpeg, FileUtils, HwAccel, low_priority_cmd};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 /// Video encoding format
@@ -239,7 +236,7 @@ impl Ffmpeg {
                     .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
-        let mut cmd = hidden_cmd(&self.bin_path);
+        let mut cmd = low_priority_cmd(&self.bin_path);
         if options.hwaccel != HwAccel::None {
             cmd.arg("-hwaccel").arg(options.hwaccel.as_str());
         }
@@ -353,7 +350,7 @@ impl Ffmpeg {
                 options.fps, options.width, options.height
             )
         };
-        let palette_output_cmd = hidden_cmd(&self.bin_path)
+        let palette_output_cmd = low_priority_cmd(&self.bin_path)
             .arg("-framerate")
             .arg(options.fps.to_string())
             .arg("-i")
@@ -395,7 +392,7 @@ impl Ffmpeg {
                 options.fps, options.width, options.height
             )
         };
-        let gif_output_cmd = hidden_cmd(&self.bin_path)
+        let gif_output_cmd = low_priority_cmd(&self.bin_path)
             .arg("-framerate")
             .arg(options.fps.to_string())
             .arg("-i")
@@ -472,7 +469,7 @@ impl Ffmpeg {
                     .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
-        let mut cmd = hidden_cmd(&self.bin_path);
+        let mut cmd = low_priority_cmd(&self.bin_path);
         cmd.arg("-y")
             .arg("-f")
             .arg("f32le")
@@ -536,9 +533,6 @@ impl Ffmpeg {
     }
     /// Encode PCM audio to target audio format
     ///
-    /// This function reads raw PCM data (f32le format) and encodes it to
-    /// the specified audio format using FFmpeg.
-    ///
     /// # Arguments
     /// * `input_path` - Path to the PCM file (f32le format)
     /// * `output_path` - Path where the encoded audio file will be saved
@@ -567,7 +561,7 @@ impl Ffmpeg {
                     .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
-        let mut cmd = hidden_cmd(&self.bin_path);
+        let mut cmd = low_priority_cmd(&self.bin_path);
         cmd.arg("-y")
             .arg("-f")
             .arg("f32le")
@@ -631,9 +625,6 @@ impl Ffmpeg {
     }
     /// Merge audio stream into video file
     ///
-    /// Takes a video file and an audio file, and produces a new file
-    /// with both streams combined.
-    ///
     /// # Arguments
     /// * `video_path` - Path to the video file (without audio)
     /// * `audio_path` - Path to the audio file (must be a recognized format like AAC, MP3, etc.)
@@ -665,7 +656,7 @@ impl Ffmpeg {
                     .map_err(|e| format!("Failed to create output directory: {:?}", e))?;
             }
         }
-        let output = hidden_cmd(&self.bin_path)
+        let output = low_priority_cmd(&self.bin_path)
             .args([
                 "-y",
                 "-i",
@@ -694,11 +685,6 @@ impl Ffmpeg {
         Ok(())
     }
     /// Directly merge PCM audio into a video file without intermediate encoding
-    ///
-    /// This function takes a video file and a PCM audio file (f32le format) and
-    /// merges them into a single output file using FFmpeg. The PCM audio is
-    /// encoded directly to the target format during the merge process, eliminating
-    /// the need for a separate encoding step.
     ///
     /// # Arguments
     /// * `video_path` - Path to the video file (without audio)
@@ -758,7 +744,7 @@ impl Ffmpeg {
         };
         // Build FFmpeg command
         // Input order: 0=video, 1=PCM audio
-        let mut cmd = hidden_cmd(&self.bin_path);
+        let mut cmd = low_priority_cmd(&self.bin_path);
         cmd.arg("-y")
             .arg("-i")
             .arg(video_path.to_str().unwrap())
