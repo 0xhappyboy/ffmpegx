@@ -115,6 +115,37 @@ impl Default for DecodeGifOptions {
         }
     }
 }
+/// Returns true when the source looks like an animated WebP.
+fn is_animated_webp_source(source_path: &str) -> bool {
+    let lower = source_path.to_lowercase();
+    if lower.ends_with(".webp") {
+        return true;
+    }
+    // Fallback: probe codec name when extension is not decisive.
+    let ffmpeg = match crate::core::find_ffmpeg_path() {
+        Some(p) => Ffmpeg::with_bin_path(&p),
+        None => return false,
+    };
+    match low_priority_cmd(&ffmpeg.probe_path)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            source_path,
+        ])
+        .output()
+    {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .trim()
+            .eq_ignore_ascii_case("webp_anim"),
+        _ => false,
+    }
+}
 impl Ffmpeg {
     /// Decode video with hardware acceleration
     ///
@@ -458,6 +489,18 @@ impl Ffmpeg {
         frames_dir: &Path,
         options: &DecodeGifOptions,
     ) -> Result<(), String> {
+        // Animated WebP needs a compatible filter chain; route it separately.
+        if is_animated_webp_source(source_path) {
+            match self.decode_animated_webp(source_path, frames_dir, options) {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    eprintln!(
+                        "[DECODE_WEBP_ANIM] Compat path failed: {}, falling back to gif path",
+                        e
+                    );
+                }
+            }
+        }
         // Try hardware acceleration first if enabled
         if options.hwaccel.is_some() {
             match self.decode_gif_hwaccel(source_path, frames_dir, options) {
@@ -472,6 +515,65 @@ impl Ffmpeg {
         }
         // Fallback to software decoding (original logic)
         self.decode_gif_software(source_path, frames_dir, options)
+    }
+    /// Compat path for animated WebP: decode all frames to PNG without
+    /// forcing an fps filter (animated WebP carries its own timeline).
+    fn decode_animated_webp(
+        &self,
+        source_path: &str,
+        frames_dir: &Path,
+        options: &DecodeGifOptions,
+    ) -> Result<(), String> {
+        let source = Path::new(source_path);
+        if !source.exists() {
+            return Err(format!("Source file not found: {}", source.display()));
+        }
+        if frames_dir.exists() {
+            let existing_count = self.count_frames(frames_dir);
+            if existing_count > 0 {
+                return Ok(());
+            }
+        }
+        FileUtils::ensure_dir(frames_dir)
+            .map_err(|e| format!("Failed to create frames dir: {:?}", e))?;
+        let frames_dir_str = frames_dir.to_string_lossy().to_string();
+        let width = options.width;
+        let height = options.height;
+        let max_frames = options.max_frames;
+        // Prefer scale only when width/height are positive; keep rgba for alpha.
+        let vf = if width > 0.0 && height > 0.0 {
+            format!("scale={}:{}:flags=lanczos,format=rgba", width, height)
+        } else {
+            "format=rgba".to_string()
+        };
+        let mut args: Vec<String> = Vec::new();
+        args.push("-y".to_string());
+        args.push("-strict".to_string());
+        args.push("unofficial".to_string());
+        args.push("-i".to_string());
+        args.push(source_path.to_string());
+        args.push("-vf".to_string());
+        args.push(vf);
+        args.push("-f".to_string());
+        args.push("image2".to_string());
+        if max_frames > 0 {
+            args.push("-frames:v".to_string());
+            args.push(max_frames.to_string());
+        }
+        args.push(format!("{}/%06d.png", frames_dir_str));
+        let output = low_priority_cmd(&self.bin_path)
+            .args(&args)
+            .output()
+            .map_err(|e| format!("FFmpeg failed: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("FFmpeg webp_anim extraction failed: {}", stderr));
+        }
+        let frame_count = self.count_frames(frames_dir);
+        if frame_count == 0 {
+            return Err("No frames extracted".to_string());
+        }
+        Ok(())
     }
     /// Decode GIF with hardware acceleration
     ///

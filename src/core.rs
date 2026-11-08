@@ -439,20 +439,68 @@ impl Ffmpeg {
     /// * `Ok(Vec<u8>)` - JPEG image data
     /// * `Err(String)` - Error message if extraction fails
     pub fn extract_frame(&self, video_path: &str, time: f64) -> Result<Vec<u8>, String> {
+        // Animated WebP outputs argb; mjpeg rejects it unless converted to full-range yuvj420p.
+        let is_animated_webp = {
+            let lower = video_path.to_lowercase();
+            if lower.ends_with(".webp") {
+                true
+            } else {
+                match low_priority_cmd(&self.probe_path)
+                    .args([
+                        "-v",
+                        "error",
+                        "-select_streams",
+                        "v:0",
+                        "-show_entries",
+                        "stream=codec_name",
+                        "-of",
+                        "default=noprint_wrappers=1:nokey=1",
+                        video_path,
+                    ])
+                    .output()
+                {
+                    Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+                        .trim()
+                        .eq_ignore_ascii_case("webp_anim"),
+                    _ => false,
+                }
+            }
+        };
+        let mut args: Vec<String> = Vec::new();
+        if is_animated_webp {
+            // Skip input seek at t<=0: webp_anim may drop the first frame on seek.
+            if time > 0.0 {
+                args.push("-ss".to_string());
+                args.push(time.to_string());
+            }
+            args.push("-i".to_string());
+            args.push(video_path.to_string());
+            args.push("-vframes".to_string());
+            args.push("1".to_string());
+            args.push("-vf".to_string());
+            args.push("scale=in_range=full:out_range=full,format=yuvj420p".to_string());
+            args.push("-strict".to_string());
+            args.push("unofficial".to_string());
+            args.push("-f".to_string());
+            args.push("image2pipe".to_string());
+            args.push("-vcodec".to_string());
+            args.push("mjpeg".to_string());
+            args.push("-".to_string());
+        } else {
+            args.push("-ss".to_string());
+            args.push(time.to_string());
+            args.push("-i".to_string());
+            args.push(video_path.to_string());
+            args.push("-vframes".to_string());
+            args.push("1".to_string());
+            args.push("-f".to_string());
+            args.push("image2pipe".to_string());
+            args.push("-vcodec".to_string());
+            args.push("mjpeg".to_string());
+            args.push("-".to_string());
+        }
         let output = low_priority_cmd(&self.bin_path)
-            .args([
-                "-ss",
-                &time.to_string(),
-                "-i",
-                video_path,
-                "-vframes",
-                "1",
-                "-f",
-                "image2pipe",
-                "-vcodec",
-                "mjpeg",
-                "-",
-            ])
+            .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg failed: {}", e))?;
         if !output.status.success() {
