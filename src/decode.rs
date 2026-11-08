@@ -169,12 +169,7 @@ impl Ffmpeg {
         if options.hwaccel.is_some() {
             match self.decode_video_hwaccel(source_path, frames_dir, audio_path, options) {
                 Ok(_) => return Ok(()),
-                Err(e) => {
-                    eprintln!(
-                        "[DECODE_VIDEO] Hardware acceleration failed: {}, falling back to software",
-                        e
-                    );
-                }
+                Err(e) => {}
             }
         }
         // Fallback to software decoding (original logic)
@@ -493,24 +488,14 @@ impl Ffmpeg {
         if is_animated_webp_source(source_path) {
             match self.decode_animated_webp(source_path, frames_dir, options) {
                 Ok(_) => return Ok(()),
-                Err(e) => {
-                    eprintln!(
-                        "[DECODE_WEBP_ANIM] Compat path failed: {}, falling back to gif path",
-                        e
-                    );
-                }
+                Err(e) => {}
             }
         }
         // Try hardware acceleration first if enabled
         if options.hwaccel.is_some() {
             match self.decode_gif_hwaccel(source_path, frames_dir, options) {
                 Ok(_) => return Ok(()),
-                Err(e) => {
-                    eprintln!(
-                        "[DECODE_GIF] Hardware acceleration failed: {}, falling back to software",
-                        e
-                    );
-                }
+                Err(e) => {}
             }
         }
         // Fallback to software decoding (original logic)
@@ -756,12 +741,7 @@ impl Ffmpeg {
         if options.hwaccel.is_some() {
             match self.decode_image_hwaccel(source_path, frames_dir, options) {
                 Ok(_) => return Ok(()),
-                Err(e) => {
-                    eprintln!(
-                        "[DECODE_IMAGE] Hardware acceleration failed: {}, falling back to software",
-                        e
-                    );
-                }
+                Err(e) => {}
             }
         }
         // Fallback to software decoding (original logic)
@@ -1126,7 +1106,6 @@ impl Ffmpeg {
                 return Ok(Vec::new());
             }
             if stderr.contains("hwaccel") || stderr.contains("device") {
-                eprintln!("[FFMPEGX] Hardware decode failed, falling back to software");
                 let fallback_args = vec![
                     "-ss".to_string(),
                     start_time.to_string(),
