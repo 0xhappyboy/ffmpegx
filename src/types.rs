@@ -2,6 +2,17 @@ use crate::low_priority_cmd;
 use serde::{Deserialize, Serialize};
 use std::process::{Child, ChildStdin, ChildStdout};
 use uuid::Uuid;
+/// Child process CPU priority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProcessPriority {
+    /// Below normal priority (yields CPU to UI).
+    Low,
+    /// Normal priority.
+    #[default]
+    Normal,
+    /// Above normal priority (preferred for latency-sensitive work).
+    High,
+}
 /// Persistent ffmpeg process for fast frame extraction
 pub struct PersistentProcess {
     /// Child process handle

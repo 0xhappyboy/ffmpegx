@@ -1,7 +1,7 @@
 //! FFmpeg wrapper for video/audio processing operations
 use crate::{
-    AudioMetadata, FrameExtractOptions, ImageMetadata, PersistentProcess, ThumbnailOptions,
-    VideoMetadata, low_priority_cmd,
+    AudioMetadata, FrameExtractOptions, ImageMetadata, PersistentProcess, ProcessPriority,
+    ThumbnailOptions, VideoMetadata, priority_cmd,
 };
 use std::{
     env, fs,
@@ -62,7 +62,7 @@ pub fn find_ffmpeg_path() -> Option<String> {
 }
 /// Check if ffmpeg at given path is executable and working
 fn is_ffmpeg_executable(path: &Path) -> bool {
-    if let Ok(output) = low_priority_cmd(path.to_str().unwrap())
+    if let Ok(output) = priority_cmd(path.to_str().unwrap(), ProcessPriority::Low)
         .arg("-version")
         .output()
     {
@@ -72,7 +72,7 @@ fn is_ffmpeg_executable(path: &Path) -> bool {
 }
 /// Check if ffmpeg is available via command name
 fn is_ffmpeg_available(cmd: &str) -> bool {
-    low_priority_cmd(cmd)
+    priority_cmd(cmd, ProcessPriority::Normal)
         .arg("-version")
         .output()
         .map(|o| o.status.success())
@@ -131,6 +131,8 @@ pub struct Ffmpeg {
     /// Persistent ffmpeg process for fast frame extraction
     /// Each instance owns its own persistent process, preventing state conflicts
     pub persistent: std::sync::Arc<std::sync::Mutex<Option<PersistentProcess>>>,
+    /// CPU priority used for every child process spawned by this instance.
+    pub priority: ProcessPriority,
 }
 impl Default for Ffmpeg {
     fn default() -> Self {
@@ -159,6 +161,7 @@ impl Ffmpeg {
             bin_path,
             probe_path,
             persistent: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            priority: ProcessPriority::default(),
         }
     }
     /// Create a new Ffmpeg instance with custom binary path
@@ -175,7 +178,33 @@ impl Ffmpeg {
             bin_path,
             probe_path,
             persistent: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            priority: ProcessPriority::default(),
         }
+    }
+    /// Create a new Ffmpeg instance with a custom priority.
+    ///
+    /// # Arguments
+    /// * `priority` - Child process CPU priority
+    ///
+    /// # Returns
+    /// A new independent Ffmpeg instance with the given priority
+    pub fn with_priority(priority: ProcessPriority) -> Self {
+        let mut instance = Self::new();
+        instance.priority = priority;
+        instance
+    }
+    /// Clone this instance with a different priority.
+    pub fn with_process_priority(mut self, priority: ProcessPriority) -> Self {
+        self.priority = priority;
+        self
+    }
+    /// Build a hidden command for the ffmpeg binary using this instance's priority.
+    pub(crate) fn ffmpeg_cmd(&self) -> std::process::Command {
+        priority_cmd(&self.bin_path, self.priority)
+    }
+    /// Build a hidden command for the ffprobe binary using this instance's priority.
+    pub(crate) fn ffprobe_cmd(&self) -> std::process::Command {
+        priority_cmd(&self.probe_path, self.priority)
     }
     /// Derive ffprobe path from ffmpeg path
     ///
@@ -225,7 +254,8 @@ impl Ffmpeg {
             *guard = None;
         }
         // Start new persistent ffmpeg process
-        let mut child = low_priority_cmd(&self.bin_path)
+        let mut child = self
+            .ffmpeg_cmd()
             .args([
                 "-i",
                 video_path,
@@ -313,7 +343,7 @@ impl Ffmpeg {
     /// * `true` if ffmpeg is available and executable
     /// * `false` otherwise
     pub fn is_available(&self) -> bool {
-        low_priority_cmd(&self.bin_path)
+        self.ffmpeg_cmd()
             .arg("-version")
             .output()
             .map(|o| o.status.success())
@@ -325,10 +355,7 @@ impl Ffmpeg {
     /// * `Some(String)` - The ffmpeg version string
     /// * `None` - If ffmpeg is not available or version cannot be determined
     pub fn get_version(&self) -> Option<String> {
-        let output = low_priority_cmd(&self.bin_path)
-            .arg("-version")
-            .output()
-            .ok()?;
+        let output = self.ffmpeg_cmd().arg("-version").output().ok()?;
         if !output.status.success() {
             return None;
         }
@@ -348,7 +375,7 @@ impl Ffmpeg {
         if !path_obj.exists() {
             return Err(format!("File not found: {}", path_obj.display()));
         }
-        let output = low_priority_cmd(&self.probe_path)
+        let output = self.ffprobe_cmd()
             .args([
                 "-v",
                 "quiet",
@@ -387,7 +414,8 @@ impl Ffmpeg {
     /// * `Ok(AudioMetadata)` - Complete audio metadata
     /// * `Err(String)` - Error message if metadata extraction fails
     pub fn get_audio_metadata(&self, path: &str) -> Result<AudioMetadata, String> {
-        let output = low_priority_cmd(&self.probe_path)
+        let output = self
+            .ffprobe_cmd()
             .args([
                 "-v",
                 "quiet",
@@ -445,7 +473,8 @@ impl Ffmpeg {
             if lower.ends_with(".webp") {
                 true
             } else {
-                match low_priority_cmd(&self.probe_path)
+                match self
+                    .ffprobe_cmd()
                     .args([
                         "-v",
                         "error",
@@ -499,7 +528,8 @@ impl Ffmpeg {
             args.push("mjpeg".to_string());
             args.push("-".to_string());
         }
-        let output = low_priority_cmd(&self.bin_path)
+        let output = self
+            .ffmpeg_cmd()
             .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg failed: {}", e))?;
@@ -525,7 +555,8 @@ impl Ffmpeg {
             return Err(format!("File not found: {}", path));
         }
         // Method 1: Count keyframes from packet flags
-        let output = low_priority_cmd(&self.probe_path)
+        let output = self
+            .ffprobe_cmd()
             .args([
                 "-v",
                 "error",
@@ -547,7 +578,8 @@ impl Ffmpeg {
         let count = stdout.lines().filter(|line| line.contains('K')).count();
         // Method 2: Fallback to frame analysis
         if count == 0 {
-            let output2 = low_priority_cmd(&self.probe_path)
+            let output2 = self
+                .ffprobe_cmd()
                 .args([
                     "-v",
                     "error",
@@ -569,7 +601,8 @@ impl Ffmpeg {
         }
         // Method 3: Use ffmpeg filter
         if count == 0 {
-            let output3 = low_priority_cmd(&self.bin_path)
+            let output3 = self
+                .ffmpeg_cmd()
                 .args([
                     "-i",
                     path,
@@ -659,7 +692,8 @@ impl Ffmpeg {
             "-y".to_string(),
             output_path.to_string(),
         ];
-        let output = low_priority_cmd(&self.bin_path)
+        let output = self
+            .ffmpeg_cmd()
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to create empty video: {}", e))?;
@@ -737,7 +771,8 @@ impl Ffmpeg {
         }
         args.push("-y".to_string());
         args.push(output_path.to_string_lossy().to_string());
-        let output = low_priority_cmd(&self.bin_path)
+        let output = self
+            .ffmpeg_cmd()
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to generate thumbnail: {}", e))?;
@@ -797,7 +832,8 @@ impl Ffmpeg {
         }
         args.push("-y".to_string());
         args.push(output_path.to_string());
-        let output = low_priority_cmd(&self.bin_path)
+        let output = self
+            .ffmpeg_cmd()
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to extract first frame: {}", e))?;
@@ -857,7 +893,8 @@ impl Ffmpeg {
         }
         args.push("-y".to_string());
         args.push(output_path.to_string());
-        let output = low_priority_cmd(&self.bin_path)
+        let output = self
+            .ffmpeg_cmd()
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to extract last frame: {}", e))?;
@@ -944,7 +981,8 @@ impl Ffmpeg {
         };
         args.push("-y".to_string());
         args.push(final_pattern.clone());
-        let output = low_priority_cmd(&self.bin_path)
+        let output = self
+            .ffmpeg_cmd()
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to extract frames: {}", e))?;
@@ -985,7 +1023,8 @@ impl Ffmpeg {
         if !Path::new(input_path).exists() {
             return Err(format!("Input file not found: {}", input_path));
         }
-        let output = low_priority_cmd(&self.probe_path)
+        let output = self
+            .ffprobe_cmd()
             .args([
                 "-v",
                 "error",
@@ -1088,7 +1127,8 @@ impl Ffmpeg {
         args.push(q.to_string());
         args.push("-y".to_string());
         args.push(output_path.to_string_lossy().to_string());
-        let output = low_priority_cmd(&self.bin_path)
+        let output = self
+            .ffmpeg_cmd()
             .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg failed: {}", e))?;

@@ -2,7 +2,7 @@
 use crate::{
     DEFAULT_AUDIO_RATE, DEFAULT_DECODE_FRAME_QUALITY, DEFAULT_FPS, DEFAULT_FRAME_HEIGHT,
     DEFAULT_FRAME_WIDTH, Ffmpeg, FileUtils, GIF_MAX_FRAMES, HwAccel, OUTPUT_FRAME_PROFUCT_FORMAT,
-    PixelFormat, YuvFrame, cmd_ffmpeg, low_priority_cmd,
+    PixelFormat, ProcessPriority, YuvFrame, priority_cmd,
 };
 use std::{
     path::{Path, PathBuf},
@@ -126,7 +126,7 @@ fn is_animated_webp_source(source_path: &str) -> bool {
         Some(p) => Ffmpeg::with_bin_path(&p),
         None => return false,
     };
-    match low_priority_cmd(&ffmpeg.probe_path)
+    match priority_cmd(&ffmpeg.probe_path, ProcessPriority::Low)
         .args([
             "-v",
             "error",
@@ -220,6 +220,7 @@ impl Ffmpeg {
         let output_format = options.output_format.to_string();
         // Resolve the ffmpeg binary path once, so the thread closures can use it.
         let bin_path = self.bin_path.clone();
+        let priority = self.priority;
         // Spawn thread for JPEG frame extraction
         let frame_handle = thread::spawn(move || {
             let max_retries = 2;
@@ -257,7 +258,7 @@ impl Ffmpeg {
                 args.push(quality_clone.clone());
                 // Output pattern
                 args.push(format!("{}/%06d.{}", frames_dir_clone, output_format));
-                let output = low_priority_cmd(&bin_path).args(&args).output();
+                let output = priority_cmd(&bin_path, priority).args(&args).output();
                 let result = match output {
                     Ok(output) if output.status.success() => Ok(()),
                     Ok(output) => {
@@ -277,12 +278,13 @@ impl Ffmpeg {
             let audio_path_str = audio_path.to_string_lossy().to_string();
             let source_path_clone2 = source_path_str.clone();
             let bin_path_audio = self.bin_path.clone();
+            let priority_audio = self.priority;
             let audio_handle = thread::spawn(move || {
                 let max_retries = 2;
                 let mut attempt = 0;
                 loop {
                     attempt += 1;
-                    let output = low_priority_cmd(&bin_path_audio)
+                    let output = priority_cmd(&bin_path_audio, priority_audio)
                         .args([
                             "-i",
                             &source_path_clone2,
@@ -368,6 +370,7 @@ impl Ffmpeg {
         let output_format = options.output_format.to_string();
         // Resolve the ffmpeg binary path once, so the thread closures can use it.
         let bin_path = self.bin_path.clone();
+        let priority = self.priority;
         // Spawn thread for JPEG frame extraction
         let frame_handle = thread::spawn(move || {
             let max_retries = 2;
@@ -400,7 +403,7 @@ impl Ffmpeg {
                 args.push(quality_clone.clone());
                 // Output pattern
                 args.push(format!("{}/%06d.{}", frames_dir_clone, output_format));
-                let output = low_priority_cmd(&bin_path).args(&args).output();
+                let output = priority_cmd(&bin_path, priority).args(&args).output();
                 let result = match output {
                     Ok(output) if output.status.success() => Ok(()),
                     Ok(output) => {
@@ -420,12 +423,13 @@ impl Ffmpeg {
             let audio_path_str = audio_path.to_string_lossy().to_string();
             let source_path_clone2 = source_path_str.clone();
             let bin_path_audio = self.bin_path.clone();
+            let priority_audio = self.priority;
             let audio_handle = thread::spawn(move || {
                 let max_retries = 2;
                 let mut attempt = 0;
                 loop {
                     attempt += 1;
-                    let output = low_priority_cmd(&bin_path_audio)
+                    let output = priority_cmd(&bin_path_audio, priority_audio)
                         .args([
                             "-i",
                             &source_path_clone2,
@@ -546,7 +550,8 @@ impl Ffmpeg {
             args.push(max_frames.to_string());
         }
         args.push(format!("{}/%06d.png", frames_dir_str));
-        let output = low_priority_cmd(&self.bin_path)
+        let output = self
+            .ffmpeg_cmd()
             .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg failed: {}", e))?;
@@ -633,7 +638,8 @@ impl Ffmpeg {
         args.push("-compression_level".to_string());
         args.push("6".to_string());
         args.push(format!("{}/%06d.{}", frames_dir_str, output_format));
-        let output = low_priority_cmd(&self.bin_path)
+        let output = self
+            .ffmpeg_cmd()
             .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg failed: {}", e))?;
@@ -694,7 +700,8 @@ impl Ffmpeg {
         let frame_count = if frame_count == 0 { 1 } else { frame_count };
         // GIF uses PNG format to preserve transparency and color space
         let output_format = "png";
-        let output = low_priority_cmd(&self.bin_path)
+        let output = self
+            .ffmpeg_cmd()
             .args([
                 "-i",
                 &source_path_str,
@@ -818,7 +825,7 @@ impl Ffmpeg {
         args.push("-compression_level".to_string());
         args.push("6".to_string());
         args.push(format!("{}/%06d.{}", frames_dir_str, output_format));
-        let output = low_priority_cmd(&self.bin_path).args(&args).output();
+        let output = self.ffmpeg_cmd().args(&args).output();
         let mut success = false;
         if let Ok(output) = output {
             if output.status.success() {
@@ -890,7 +897,8 @@ impl Ffmpeg {
         // Images use PNG format to preserve transparency and color space
         let output_format = "png";
         // Try FFmpeg first with rgba pixel format
-        let output = low_priority_cmd(&self.bin_path)
+        let output = self
+            .ffmpeg_cmd()
             .args([
                 "-i",
                 &source_path_str,
@@ -1096,7 +1104,8 @@ impl Ffmpeg {
         args.push("-f".to_string());
         args.push("rawvideo".to_string());
         args.push("-".to_string());
-        let output = low_priority_cmd(&self.bin_path)
+        let output = self
+            .ffmpeg_cmd()
             .args(&args)
             .output()
             .map_err(|e| format!("FFmpeg decode failed: {}", e))?;
@@ -1119,7 +1128,8 @@ impl Ffmpeg {
                     "rawvideo".to_string(),
                     "-".to_string(),
                 ];
-                let fallback_output = low_priority_cmd(&self.bin_path)
+                let fallback_output = self
+                    .ffmpeg_cmd()
                     .args(&fallback_args)
                     .output()
                     .map_err(|e| format!("FFmpeg software decode failed: {}", e))?;
@@ -1194,7 +1204,8 @@ impl Ffmpeg {
     }
     /// Get video dimensions using ffprobe
     fn get_video_dimensions(&self, source_path: &str) -> Result<(u32, u32), String> {
-        let output = low_priority_cmd(&self.probe_path)
+        let output = self
+            .ffprobe_cmd()
             .args([
                 "-v",
                 "error",
