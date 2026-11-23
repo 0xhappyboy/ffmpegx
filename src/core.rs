@@ -20,7 +20,7 @@ use std::{
 /// * `Some(String)` - Found ffmpeg path
 /// * `None` - ffmpeg not found
 pub fn find_ffmpeg_path() -> Option<String> {
-    // 1. First check Tauri application bin directories
+    // First check Tauri application bin directories
     let possible_paths = get_bin_paths();
     for path in possible_paths {
         if path.exists() {
@@ -42,7 +42,7 @@ pub fn find_ffmpeg_path() -> Option<String> {
             }
         }
     }
-    // 2. Try system PATH environment variable
+    // Try system PATH environment variable
     if let Ok(path_var) = env::var("PATH") {
         for path in env::split_paths(&path_var) {
             #[cfg(target_os = "windows")]
@@ -54,7 +54,7 @@ pub fn find_ffmpeg_path() -> Option<String> {
             }
         }
     }
-    // 3. Fallback to using "ffmpeg" command name (rely on PATH resolution)
+    // Fallback to using "ffmpeg" command name (rely on PATH resolution)
     if is_ffmpeg_available("ffmpeg") {
         return Some("ffmpeg".to_string());
     }
