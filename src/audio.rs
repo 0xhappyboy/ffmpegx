@@ -182,3 +182,78 @@ pub fn mix_audio_samples(samples_list: Vec<Vec<f32>>) -> Vec<f32> {
     }
     mixed
 }
+/// Generate waveform PNG from audio file (synchronous, self-cleaning)
+///
+/// # Arguments
+/// * `audio_path` - Path to the audio file (mp3, wav, flac, etc.)
+///
+/// # Returns
+/// * `Ok(Vec<u8>)` - PNG image binary data
+/// * `Err(String)` - Error message if generation fails
+pub fn generate_waveform_from_audio_sync(audio_path: &str) -> Result<Vec<u8>, String> {
+    if !Path::new(audio_path).exists() {
+        return Err(format!("Audio file not found: {}", audio_path));
+    }
+    let temp_dir = std::env::temp_dir().join(format!("waveform_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
+    let output_path = temp_dir.join("waveform.png");
+    let ffmpeg_bin = find_ffmpeg_path().ok_or("ffmpeg not found")?;
+    let probe_bin = crate::core::Ffmpeg::with_bin_path(&ffmpeg_bin)
+        .probe_path
+        .clone();
+    let probe_output = low_priority_cmd(&probe_bin)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=sample_rate,channels",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            audio_path,
+        ])
+        .output()
+        .map_err(|e| format!("Failed to probe audio: {}", e))?;
+    let info = String::from_utf8_lossy(&probe_output.stdout);
+    let lines: Vec<&str> = info.lines().collect();
+    let sample_rate = if !lines.is_empty() {
+        lines[0].parse::<u32>().unwrap_or(DEFAULT_AUDIO_RATE)
+    } else {
+        DEFAULT_AUDIO_RATE
+    };
+    let filter = if sample_rate != DEFAULT_AUDIO_RATE {
+        format!(
+            "aresample={},showwavespic=s=800x200:colors=0x00ff00",
+            DEFAULT_AUDIO_RATE
+        )
+    } else {
+        "showwavespic=s=800x200:colors=0x00ff00".to_string()
+    };
+    let output = low_priority_cmd(&ffmpeg_bin)
+        .args([
+            "-i",
+            audio_path,
+            "-filter_complex",
+            &filter,
+            "-frames:v",
+            "1",
+            "-y",
+            output_path.to_str().unwrap(),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to generate waveform: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        return Err(format!("FFmpeg waveform generation failed: {}", stderr));
+    }
+    if !output_path.exists() || output_path.metadata().map(|m| m.len() == 0).unwrap_or(true) {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        return Err("Waveform file not created or empty".to_string());
+    }
+    let data =
+        std::fs::read(&output_path).map_err(|e| format!("Failed to read waveform: {}", e))?;
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    Ok(data)
+}
